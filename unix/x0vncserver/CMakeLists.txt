@@ -22,6 +22,10 @@ add_executable(x0vncserver
 
 target_link_libraries(x0vncserver tx rfb network rdr unixcommon)
 
+
+target_link_libraries(x0vncserver
+  ${CMAKE_SOURCE_DIR}/common/quiche/libquiche.a)
+
 if(X11_FOUND AND X11_XTest_LIB)
   add_definitions(-DHAVE_XTEST)
   target_link_libraries(x0vncserver ${X11_XTest_LIB})
