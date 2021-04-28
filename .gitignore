@@ -12,3 +12,5 @@ Makefile.in
 config.h
 
 build/
+
+common/quiche/cert.*

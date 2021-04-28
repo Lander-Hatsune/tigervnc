@@ -1,15 +1,16 @@
 /* Copyright (C) 2002-2005 RealVNC Ltd.  All Rights Reserved.
- * 
+ * Copyright 2011 Pierre Ossman for Cendio AB
+ *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This software is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this software; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307,
@@ -17,34 +18,34 @@
  */
 
 //
-// FdInStream streams from a file descriptor.
+// FdOutStream streams to a file descriptor.
 //
 
-#ifndef __RDR_FDINSTREAM_H__
-#define __RDR_FDINSTREAM_H__
+#ifndef __RDR_QSOUTSTREAM_H__
+#define __RDR_QSOUTSTREAM_H__
 
-#include <rdr/BufferedInStream.h>
+#include <rdr/FdOutStream.h>
 
 namespace rdr {
 
-  class FdInStream : public BufferedInStream {
+class QSOutStream : public FdOutStream {
+ public:
+  QSOutStream(int fd);
+  virtual ~QSOutStream();
 
-  public:
+  int getFd() { return fd; }
 
-    FdInStream(int fd, bool closeWhenDone_=false);
-    virtual ~FdInStream();
+  unsigned getIdleTime();
 
-    int getFd() { return fd; }
+  virtual void cork(bool enable);
 
-  protected:
-    virtual bool fillBuffer(size_t maxSize);
+ private:
+  virtual bool flushBuffer() override;
+  virtual size_t writeFd(const void* data, size_t length) override;
+  int fd;
+  struct timeval lastWrite;
+};
 
-    virtual size_t readFd(void* buf, size_t len);
+}  // namespace rdr
 
-    int fd;
-    bool closeWhenDone;
-  };
-
-} // end of namespace rdr
-
-#endif
+#endif  // __RDR_QSOUTSTREAM_H__

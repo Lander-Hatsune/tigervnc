@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "makefile": "makefile",
+        "*.rmd": "markdown",
+        "*.tcc": "cpp"
+    }
+}

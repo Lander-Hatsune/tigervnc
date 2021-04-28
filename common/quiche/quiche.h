@@ -31,8 +31,8 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 // QUIC transport API.
 //
@@ -47,50 +47,50 @@ extern "C" {
 #define QUICHE_MIN_CLIENT_INITIAL_LEN 1200
 
 enum quiche_error {
-    // There is no more work to do.
-    QUICHE_ERR_DONE = -1,
+  // There is no more work to do.
+  QUICHE_ERR_DONE = -1,
 
-    // The provided buffer is too short.
-    QUICHE_ERR_BUFFER_TOO_SHORT = -2,
+  // The provided buffer is too short.
+  QUICHE_ERR_BUFFER_TOO_SHORT = -2,
 
-    // The provided packet cannot be parsed because its version is unknown.
-    QUICHE_ERR_UNKNOWN_VERSION = -3,
+  // The provided packet cannot be parsed because its version is unknown.
+  QUICHE_ERR_UNKNOWN_VERSION = -3,
 
-    // The provided packet cannot be parsed because it contains an invalid
-    // frame.
-    QUICHE_ERR_INVALID_FRAME = -4,
+  // The provided packet cannot be parsed because it contains an invalid
+  // frame.
+  QUICHE_ERR_INVALID_FRAME = -4,
 
-    // The provided packet cannot be parsed.
-    QUICHE_ERR_INVALID_PACKET = -5,
+  // The provided packet cannot be parsed.
+  QUICHE_ERR_INVALID_PACKET = -5,
 
-    // The operation cannot be completed because the connection is in an
-    // invalid state.
-    QUICHE_ERR_INVALID_STATE = -6,
+  // The operation cannot be completed because the connection is in an
+  // invalid state.
+  QUICHE_ERR_INVALID_STATE = -6,
 
-    // The operation cannot be completed because the stream is in an
-    // invalid state.
-    QUICHE_ERR_INVALID_STREAM_STATE = -7,
+  // The operation cannot be completed because the stream is in an
+  // invalid state.
+  QUICHE_ERR_INVALID_STREAM_STATE = -7,
 
-    // The peer's transport params cannot be parsed.
-    QUICHE_ERR_INVALID_TRANSPORT_PARAM = -8,
+  // The peer's transport params cannot be parsed.
+  QUICHE_ERR_INVALID_TRANSPORT_PARAM = -8,
 
-    // A cryptographic operation failed.
-    QUICHE_ERR_CRYPTO_FAIL = -9,
+  // A cryptographic operation failed.
+  QUICHE_ERR_CRYPTO_FAIL = -9,
 
-    // The TLS handshake failed.
-    QUICHE_ERR_TLS_FAIL = -10,
+  // The TLS handshake failed.
+  QUICHE_ERR_TLS_FAIL = -10,
 
-    // The peer violated the local flow control limits.
-    QUICHE_ERR_FLOW_CONTROL = -11,
+  // The peer violated the local flow control limits.
+  QUICHE_ERR_FLOW_CONTROL = -11,
 
-    // The peer violated the local stream limits.
-    QUICHE_ERR_STREAM_LIMIT = -12,
+  // The peer violated the local stream limits.
+  QUICHE_ERR_STREAM_LIMIT = -12,
 
-    // The received data exceeds the stream's final size.
-    QUICHE_ERR_FINAL_SIZE = -13,
+  // The received data exceeds the stream's final size.
+  QUICHE_ERR_FINAL_SIZE = -13,
 
-    // Error in congestion control.
-    QUICHE_ERR_CONGESTION_CONTROL = -14,
+  // Error in congestion control.
+  QUICHE_ERR_CONGESTION_CONTROL = -14,
 };
 
 // Returns a human readable string with the quiche version number.
@@ -141,19 +141,24 @@ void quiche_config_set_max_packet_size(quiche_config *config, uint64_t v);
 void quiche_config_set_initial_max_data(quiche_config *config, uint64_t v);
 
 // Sets the `initial_max_stream_data_bidi_local` transport parameter.
-void quiche_config_set_initial_max_stream_data_bidi_local(quiche_config *config, uint64_t v);
+void quiche_config_set_initial_max_stream_data_bidi_local(quiche_config *config,
+                                                          uint64_t v);
 
 // Sets the `initial_max_stream_data_bidi_remote` transport parameter.
-void quiche_config_set_initial_max_stream_data_bidi_remote(quiche_config *config, uint64_t v);
+void quiche_config_set_initial_max_stream_data_bidi_remote(
+    quiche_config *config, uint64_t v);
 
 // Sets the `initial_max_stream_data_uni` transport parameter.
-void quiche_config_set_initial_max_stream_data_uni(quiche_config *config, uint64_t v);
+void quiche_config_set_initial_max_stream_data_uni(quiche_config *config,
+                                                   uint64_t v);
 
 // Sets the `initial_max_streams_bidi` transport parameter.
-void quiche_config_set_initial_max_streams_bidi(quiche_config *config, uint64_t v);
+void quiche_config_set_initial_max_streams_bidi(quiche_config *config,
+                                                uint64_t v);
 
 // Sets the `initial_max_streams_uni` transport parameter.
-void quiche_config_set_initial_max_streams_uni(quiche_config *config, uint64_t v);
+void quiche_config_set_initial_max_streams_uni(quiche_config *config,
+                                               uint64_t v);
 
 // Sets the `ack_delay_exponent` transport parameter.
 void quiche_config_set_ack_delay_exponent(quiche_config *config, uint64_t v);
@@ -165,12 +170,13 @@ void quiche_config_set_max_ack_delay(quiche_config *config, uint64_t v);
 void quiche_config_set_disable_active_migration(quiche_config *config, bool v);
 
 enum quiche_cc_algorithm {
-    QUICHE_CC_RENO = 0,
-    QUICHE_CC_BBR = 1,
+  QUICHE_CC_RENO = 0,
+  QUICHE_CC_BBR = 1,
 };
 
 // Sets the congestion control algorithm used.
-void quiche_config_set_cc_algorithm(quiche_config *config, enum quiche_cc_algorithm algo);
+void quiche_config_set_cc_algorithm(quiche_config *config,
+                                    enum quiche_cc_algorithm algo);
 
 // Frees the config object.
 void quiche_config_free(quiche_config *config);
@@ -178,9 +184,8 @@ void quiche_config_free(quiche_config *config);
 // Extracts version, type, source / destination connection ID and address
 // verification token from the packet in |buf|.
 int quiche_header_info(const uint8_t *buf, size_t buf_len, size_t dcil,
-                       uint32_t *version, uint8_t *type,
-                       uint8_t *scid, size_t *scid_len,
-                       uint8_t *dcid, size_t *dcid_len,
+                       uint32_t *version, uint8_t *type, uint8_t *scid,
+                       size_t *scid_len, uint8_t *dcid, size_t *dcid_len,
                        uint8_t *token, size_t *token_len);
 
 // A QUIC connection.
@@ -201,11 +206,10 @@ ssize_t quiche_negotiate_version(const uint8_t *scid, size_t scid_len,
                                  uint8_t *out, size_t out_len);
 
 // Writes a retry packet.
-ssize_t quiche_retry(const uint8_t *scid, size_t scid_len,
-                     const uint8_t *dcid, size_t dcid_len,
-                     const uint8_t *new_scid, size_t new_scid_len,
-                     const uint8_t *token, size_t token_len,
-                     uint8_t *out, size_t out_len);
+ssize_t quiche_retry(const uint8_t *scid, size_t scid_len, const uint8_t *dcid,
+                     size_t dcid_len, const uint8_t *new_scid,
+                     size_t new_scid_len, const uint8_t *token,
+                     size_t token_len, uint8_t *out, size_t out_len);
 
 // Returns true if the given protocol version is supported.
 bool quiche_version_is_supported(uint32_t version);
@@ -228,7 +232,10 @@ typedef struct RangeBuf quiche_rangebuf;
 ssize_t quiche_conn_stream_recv(quiche_conn *conn, uint64_t stream_id,
                                 uint8_t *out, size_t buf_len, bool *fin);
 
-int64_t quiche_conn_get_block_info(quiche_conn *conn, uint64_t stream_id, uint64_t *block_size, uint64_t *block_priority, uint64_t *block_deadline);
+int64_t quiche_conn_get_block_info(quiche_conn *conn, uint64_t stream_id,
+                                   uint64_t *block_size,
+                                   uint64_t *block_priority,
+                                   uint64_t *block_deadline);
 
 // give weights of priority
 void quiche_conn_priority_weight(quiche_conn *conn, double weight);
@@ -245,7 +252,9 @@ ssize_t quiche_conn_stream_send(quiche_conn *conn, uint64_t stream_id,
 
 // Writes data to a stream with deadline and priority.
 ssize_t quiche_conn_stream_send_full(quiche_conn *conn, uint64_t stream_id,
-                                const uint8_t *buf, size_t buf_len, bool fin, uint64_t deadline, uint64_t priority);
+                                     const uint8_t *buf, size_t buf_len,
+                                     bool fin, uint64_t deadline,
+                                     uint64_t priority);
 
 // Get block completion time.
 int64_t quiche_conn_get_bct(quiche_conn *conn, uint64_t stream_id);
@@ -254,8 +263,8 @@ int64_t quiche_conn_get_bct(quiche_conn *conn, uint64_t stream_id);
 ssize_t quiche_conn_get_good_recv(quiche_conn *conn, uint64_t stream_id);
 
 enum quiche_shutdown {
-    QUICHE_SHUTDOWN_READ = 0,
-    QUICHE_SHUTDOWN_WRITE = 1,
+  QUICHE_SHUTDOWN_READ = 0,
+  QUICHE_SHUTDOWN_WRITE = 1,
 };
 
 // Shuts down reading or writing from/to the specified stream.
@@ -309,11 +318,11 @@ bool quiche_conn_is_closed(quiche_conn *conn);
 //
 // Note that the application is responsible for freeing the data.
 int quiche_conn_stream_init_application_data(quiche_conn *conn,
-                                             uint64_t stream_id,
-                                             void *data);
+                                             uint64_t stream_id, void *data);
 
 // Returns the stream's application data, if any was initialized.
-void *quiche_conn_stream_application_data(quiche_conn *conn, uint64_t stream_id);
+void *quiche_conn_stream_application_data(quiche_conn *conn,
+                                          uint64_t stream_id);
 
 // Fetches the next stream from the given iterator. Returns false if there are
 // no more elements in the iterator.
@@ -323,20 +332,20 @@ bool quiche_stream_iter_next(quiche_stream_iter *iter, uint64_t *stream_id);
 void quiche_stream_iter_free(quiche_stream_iter *iter);
 
 typedef struct {
-    // The number of QUIC packets received on this connection.
-    size_t recv;
+  // The number of QUIC packets received on this connection.
+  size_t recv;
 
-    // The number of QUIC packets sent on this connection.
-    size_t sent;
+  // The number of QUIC packets sent on this connection.
+  size_t sent;
 
-    // The number of QUIC packets that were lost.
-    size_t lost;
+  // The number of QUIC packets that were lost.
+  size_t lost;
 
-    // The estimated round-trip time of the connection (in nanoseconds).
-    uint64_t rtt;
+  // The estimated round-trip time of the connection (in nanoseconds).
+  uint64_t rtt;
 
-    // The size in bytes of the connection's congestion window.
-    size_t cwnd;
+  // The size in bytes of the connection's congestion window.
+  size_t cwnd;
 } quiche_stats;
 
 // Collects and returns statistics about the connection.
@@ -344,7 +353,6 @@ void quiche_conn_stats(quiche_conn *conn, quiche_stats *out);
 
 // Frees the connection object.
 void quiche_conn_free(quiche_conn *conn);
-
 
 // HTTP/3 API
 //
@@ -359,13 +367,16 @@ typedef struct Http3Config quiche_h3_config;
 quiche_h3_config *quiche_h3_config_new(void);
 
 // Sets the `SETTINGS_MAX_HEADER_LIST_SIZE` setting.
-void quiche_h3_config_set_max_header_list_size(quiche_h3_config *config, uint64_t v);
+void quiche_h3_config_set_max_header_list_size(quiche_h3_config *config,
+                                               uint64_t v);
 
 // Sets the `SETTINGS_QPACK_MAX_TABLE_CAPACITY` setting.
-void quiche_h3_config_set_qpack_max_table_capacity(quiche_h3_config *config, uint64_t v);
+void quiche_h3_config_set_qpack_max_table_capacity(quiche_h3_config *config,
+                                                   uint64_t v);
 
 // Sets the `SETTINGS_QPACK_BLOCKED_STREAMS` setting.
-void quiche_h3_config_set_qpack_blocked_streams(quiche_h3_config *config, uint64_t v);
+void quiche_h3_config_set_qpack_blocked_streams(quiche_h3_config *config,
+                                                uint64_t v);
 
 // Frees the HTTP/3 config object.
 void quiche_h3_config_free(quiche_h3_config *config);
@@ -382,9 +393,9 @@ quiche_h3_conn *quiche_h3_conn_new_with_transport(quiche_conn *quiche_conn,
                                                   quiche_h3_config *config);
 
 enum quiche_h3_event_type {
-    QUICHE_H3_EVENT_HEADERS,
-    QUICHE_H3_EVENT_DATA,
-    QUICHE_H3_EVENT_FINISHED,
+  QUICHE_H3_EVENT_HEADERS,
+  QUICHE_H3_EVENT_DATA,
+  QUICHE_H3_EVENT_FINISHED,
 };
 
 typedef struct Http3Event quiche_h3_event;
@@ -415,11 +426,11 @@ bool quiche_h3_event_headers_has_body(quiche_h3_event *ev);
 void quiche_h3_event_free(quiche_h3_event *ev);
 
 typedef struct {
-    const uint8_t *name;
-    size_t name_len;
+  const uint8_t *name;
+  size_t name_len;
 
-    const uint8_t *value;
-    size_t value_len;
+  const uint8_t *value;
+  size_t value_len;
 } quiche_h3_header;
 
 // Sends an HTTP/3 request.
@@ -448,4 +459,4 @@ void quiche_h3_conn_free(quiche_h3_conn *conn);
 }  // extern C
 #endif
 
-#endif // QUICHE_H
+#endif  // QUICHE_H
