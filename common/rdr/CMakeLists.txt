@@ -6,6 +6,8 @@ add_library(rdr STATIC
   Exception.cxx
   FdInStream.cxx
   FdOutStream.cxx
+  QSInStream.cxx
+  QSOutStream.cxx
   FileInStream.cxx
   HexInStream.cxx
   HexOutStream.cxx
@@ -25,6 +27,7 @@ if(WIN32)
 endif()
 
 target_link_libraries(rdr ${RDR_LIBRARIES})
+target_link_libraries(rdr ${CMAKE_SOURCE_DIR}/common/quiche/libquiche.a dl m)
 
 if(UNIX)
   libtool_create_control_file(rdr)

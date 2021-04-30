@@ -106,7 +106,7 @@ QSSocket::QSSocket(int sock) : Socket(sock) {}
 QSSocket::QSSocket(const char *host, int port)
     : config{NULL}, conns{NULL}, instream{NULL}, outstream{NULL} {
   int sock, err, result;
-  struct addrinfo *ai, *current, hints;
+  struct addrinfo *ai, hints;
 
   // - Create a UDP socket
 

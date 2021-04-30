@@ -162,6 +162,193 @@ int main(int argc, char **argv) {
     PollingScheduler sched((int)pollingCycle, (int)maxProcessorUsage);
 
     while (!caughtSignal) {
+      //
+      {
+        struct conn_io *tmp, *conn = NULL;
+        static uint8_t out[MAX_DATAGRAM_SIZE];
+
+        ssize_t read, recv_len = 0;
+        while (1) {
+          struct sockaddr_storage peer_addr;
+          socklen_t peer_addr_len = sizeof(peer_addr);
+          memset(&peer_addr, 0, peer_addr_len);
+
+          read = recvfrom(fd, buf, 65535, 0, (struct sockaddr *)&peer_addr,
+                          &peer_addr_len);
+
+          if (read < 0) {
+            if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
+              vlog.error("read would block\n");
+              break;
+            }
+
+            vlog.error("fail to read\n");
+            break;
+          }
+
+          uint8_t type;
+          uint32_t version;
+
+          uint8_t scid[QUICHE_MAX_CONN_ID_LEN];
+          size_t scid_len = sizeof(scid);
+
+          uint8_t dcid[QUICHE_MAX_CONN_ID_LEN];
+          size_t dcid_len = sizeof(dcid);
+
+          uint8_t odcid[QUICHE_MAX_CONN_ID_LEN];
+          size_t odcid_len = sizeof(odcid);
+
+          uint8_t token[MAX_TOKEN_LEN];
+          size_t token_len = sizeof(token);
+
+          int rc = quiche_header_info((uint8_t *)buf, read, LOCAL_CONN_ID_LEN,
+                                      &version, &type, scid, &scid_len, dcid,
+                                      &dcid_len, token, &token_len);
+          if (rc < 0) {
+            vlog.error("failed to parse header: %d\n", rc);
+            continue;
+          }
+
+          HASH_FIND(hh, conns, dcid, dcid_len, conn);
+
+          if (conn == NULL) {
+            if (!quiche_version_is_supported(version)) {
+              vlog.error("version negotiation\n");
+
+              ssize_t written = quiche_negotiate_version(
+                  scid, scid_len, dcid, dcid_len, out, sizeof(out));
+
+              if (written < 0) {
+                vlog.error("failed to create vneg packet: %zd\n", written);
+                continue;
+              }
+
+              ssize_t sent =
+                  sendto(fd, out, written, 0, (struct sockaddr *)&peer_addr,
+                         peer_addr_len);
+              if (sent != written) {
+                vlog.error("failed to send\n");
+                continue;
+              }
+
+              vlog.info("sent %zd bytes\n", sent);
+              continue;
+            }
+
+            if (token_len == 0) {
+              vlog.error("stateless retry\n");
+
+              mint_token(dcid, dcid_len, &peer_addr, peer_addr_len, token,
+                         &token_len);
+
+              ssize_t written =
+                  quiche_retry(scid, scid_len, dcid, dcid_len, dcid, dcid_len,
+                               token, token_len, out, sizeof(out));
+
+              if (written < 0) {
+                vlog.error("failed to create retry packet: %zd\n", written);
+                continue;
+              }
+
+              ssize_t sent =
+                  sendto(fd, out, written, 0, (struct sockaddr *)&peer_addr,
+                         peer_addr_len);
+              if (sent != written) {
+                vlog.error("failed to send");
+                continue;
+              }
+
+              vlog.info("sent %zd bytes\n", sent);
+              continue;
+            }
+
+            if (!validate_token(token, token_len, &peer_addr, peer_addr_len,
+                                odcid, &odcid_len)) {
+              vlog.error("invalid address validation token\n");
+              continue;
+            }
+
+            if (!(conn = create_conn(odcid, odcid_len))) {
+              continue;
+            }
+
+            memcpy(&conn->peer_addr, &peer_addr, peer_addr_len);
+            conn->peer_addr_len = peer_addr_len;
+          }
+
+          ssize_t done = quiche_conn_recv(conn->q_conn, (uint8_t *)buf, read);
+
+          if (done < 0) {
+            vlog.error("failed to process packet: %zd\n", done);
+            continue;
+          }
+
+          vlog.info("recv %zd bytes\n", done);
+
+          if (quiche_conn_is_established(conn->q_conn)) {
+            uint64_t s = 0;
+
+            quiche_stream_iter *readable = quiche_conn_readable(conn->q_conn);
+
+            while (quiche_stream_iter_next(readable, &s)) {
+              vlog.info("stream %" PRIu64 " is readable\n", s);
+
+              bool fin = false;
+              ssize_t curr_recv_len = quiche_conn_stream_recv(
+                  conn->q_conn, s, (uint8_t *)buf, len, &fin);
+              if (curr_recv_len < 0 || curr_recv_len == len) {
+                break;
+              }
+              vlog.info("recv: length=%ld\n", curr_recv_len);
+
+              if (fin) {
+                static const char *resp = "byez\n";
+                quiche_conn_stream_send_full(conn->q_conn, s, (uint8_t *)resp,
+                                             5, true, 200, 99999999999999);
+                vlog.info("send: %s", resp);
+              }
+            }
+            quiche_stream_iter_free(readable);
+          }
+        }
+
+        HASH_ITER(hh, conns, conn, tmp) {
+          flush_egress(conn);
+
+          if (quiche_conn_is_closed(conn->q_conn)) {
+            quiche_stats stats;
+            quiche_conn_stats(conn->q_conn, &stats);
+            vlog.error(
+                "connection[id:%s] closed, recv=%zu sent=%zu lost=%zu "
+                "rtt=%" PRIu64 "ns cwnd=%zu\n",
+                (char *)conn->cid, stats.recv, stats.sent, stats.lost,
+                stats.rtt, stats.cwnd);
+
+            HASH_DELETE(hh, conns, conn);
+            quiche_conn_free(conn->q_conn);
+            free(conn);
+          }
+        }
+        ///////
+        HASH_ITER(hh, conns, conn, tmp) {
+          flush_egress(conn);
+
+          if (quiche_conn_is_closed(conn->q_conn)) {
+            quiche_stats stats;
+            quiche_conn_stats(conn->q_conn, &stats);
+            vlog.error(
+                "connection[id:%s] closed, recv=%zu sent=%zu lost=%zu "
+                "rtt=%" PRIu64 "ns cwnd=%zu\n",
+                (char *)conn->cid, stats.recv, stats.sent, stats.lost,
+                stats.rtt, stats.cwnd);
+
+            HASH_DELETE(hh, conns, conn);
+            quiche_conn_free(conn->q_conn);
+            free(conn);
+          }
+        }
+      }
+      //
       int wait_ms;
       struct timeval tv;
       fd_set rfds, wfds;

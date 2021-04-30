@@ -9,7 +9,7 @@
 #ifndef _QUICHECONFIG_H_INCLUDED_
 #define _QUICHECONFIG_H_INCLUDED_
 
-#include <quiche.h>
+#include <quiche/quiche.h>
 #include <sys/socket.h>
 #include <uthash.h>
 

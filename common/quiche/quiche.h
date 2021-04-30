@@ -33,6 +33,7 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 // QUIC transport API.
 //

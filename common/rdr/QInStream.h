@@ -1,5 +1,4 @@
-/* Copyright (C) 2002-2005 RealVNC Ltd.  All Rights Reserved.
- * Copyright 2011 Pierre Ossman for Cendio AB
+/* Copyright (C) 2002-2003 RealVNC Ltd.  All Rights Reserved.
  *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,35 +16,26 @@
  * USA.
  */
 
-//
-// FdOutStream streams to a file descriptor.
-//
+#ifndef __RDR_QInStream_H__
+#define __RDR_QInStream_H__
 
-#ifndef __RDR_QSOUTSTREAM_H__
-#define __RDR_QSOUTSTREAM_H__
-
-#include <rdr/FdOutStream.h>
+#include <quiche/quicheConfig.h>
+#include <rdr/FdInStream.h>
 
 namespace rdr {
 
-class QSOutStream : public FdOutStream {
+class QInStream : public FdInStream {
  public:
-  QSOutStream(int fd);
-  virtual ~QSOutStream();
-
-  int getFd() { return fd; }
-
-  unsigned getIdleTime();
-
-  virtual void cork(bool enable);
+  QInStream(int fd_, conn_io *conn_, bool close_when_done_ = false);
+  virtual ~QInStream();
 
  private:
-  virtual bool flushBuffer() override;
-  virtual size_t writeFd(const void* data, size_t length) override;
-  int fd;
-  struct timeval lastWrite;
+  conn_io *conn;
+
+  virtual bool fillBuffer(size_t maxSize) override;
+  virtual size_t readFd(void *buf, size_t len) override;
 };
 
-}  // namespace rdr
+}  // end of namespace rdr
 
-#endif  // __RDR_QSOUTSTREAM_H__
+#endif  // __RDR_QInStream_H__
