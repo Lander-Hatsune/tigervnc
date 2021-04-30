@@ -37,7 +37,7 @@
 
 #include <ev.h>
 #include <fcntl.h>
-#include <network/QSSocket.h>
+#include <network/QSocket.h>
 #include <network/TcpSocket.h>
 #include <rfb/Configuration.h>
 #include <rfb/LogWriter.h>
@@ -67,10 +67,11 @@
 
 using namespace network;
 using namespace rdr;
+using namespace quiche;
 
 // - RFB protocol parameters
 
-static rfb::LogWriter vlog("QSSocket");
+static rfb::LogWriter vlog("QSocket");
 
 static rfb::BoolParameter UseIPv4(
     "UseIPv4", "Use IPv4 for incoming and outgoing connections.", true);
@@ -99,12 +100,7 @@ int network::findFreeUDPPort(void) {
   return ntohs(addr.sin_port);
 }
 
-// -=- QSSocket
-
-QSSocket::QSSocket(int sock) : Socket(sock) {}
-
-QSSocket::QSSocket(const char *host, int port)
-    : config{NULL}, conns{NULL}, instream{NULL}, outstream{NULL} {
+int network::createUDPSocket(const char *host, int port) {
   int sock, err, result;
   struct addrinfo *ai, hints;
 
@@ -124,71 +120,54 @@ QSSocket::QSSocket(const char *host, int port)
   sock = -1;
   err = 0;
   sock = socket(ai->ai_family, SOCK_DGRAM, 0);
+
   if (sock == -1) {
     err = errorNumber;
     freeaddrinfo(ai);
     throw SocketException("unable to create a UDP socket", err);
-  }
+  } else {
+    // - Set the sock nonblock
 
-  // - Set the sock nonblock
-
-  if (sock != -1 && fcntl(sock, F_SETFL, O_NONBLOCK) != 0) {
-    err = errorNumber;
-    freeaddrinfo(ai);
-    throw SocketException("failed to make socket non-blocking", err);
-  }
+    if (fcntl(sock, F_SETFL, O_NONBLOCK) != 0) {
+      err = errorNumber;
+      freeaddrinfo(ai);
+      throw SocketException("failed to make socket non-blocking", err);
+    }
 
 #ifndef WIN32
-  // - By default, close the socket on exec()
-  if (sock != -1 && fcntl(sock, F_SETFD, FD_CLOEXEC)) {
-    err = errorNumber;
-    freeaddrinfo(ai);
-    throw SocketException("failed to make socket non-blocking", err);
-  }
+    // - By default, close the socket on exec()
+    if (fcntl(sock, F_SETFD, FD_CLOEXEC)) {
+      err = errorNumber;
+      freeaddrinfo(ai);
+      throw SocketException("failed to make socket non-blocking", err);
+    }
 #endif
 
-  // - Bind the socket
+    // - Bind the socket
 
-  if (sock != -1 && bind(sock, ai->ai_addr, ai->ai_addrlen) < 0) {
-    err = errorNumber;
-    freeaddrinfo(ai);
-    throw SocketException("failed to bind socket", err);
-  }
+    if (bind(sock, ai->ai_addr, ai->ai_addrlen) < 0) {
+      err = errorNumber;
+      freeaddrinfo(ai);
+      throw SocketException("failed to bind socket", err);
+    }
 
-  // - Keep the socket
-
-  if (sock != -1) {
-    qs_sock = sock;
     freeaddrinfo(ai);
     vlog.info("successfully create a UDP socket\n");
   }
 
-  // - Configure quiche
+  return sock;
+}
 
-  config = quiche_config_new(QUICHE_PROTOCOL_VERSION);
-  if (config == NULL) {
-    freeaddrinfo(ai);
-    throw QuicheException("failed to create quiche config", 0);
-  } else {
-    quiche_config_load_cert_chain_from_pem_file(config, "../quiche/cert.crt");
-    quiche_config_load_priv_key_from_pem_file(config, "../quiche/cert.key");
+// -=- QSocket
 
-    quiche_config_set_application_protos(
-        config, (uint8_t *)"\x05hq-28\x05hq-27\x08http/0.9", 21);
-
-    quiche_config_set_max_idle_timeout(config, 5000);
-    quiche_config_set_max_packet_size(config, MAX_DATAGRAM_SIZE);
-    quiche_config_set_initial_max_data(config, 10000000);
-    quiche_config_set_initial_max_stream_data_bidi_local(config, 1000000);
-    quiche_config_set_initial_max_stream_data_bidi_remote(config, 1000000);
-    quiche_config_set_initial_max_streams_bidi(config, 100);
-    quiche_config_set_cc_algorithm(config, QUICHE_CC_RENO);
-    vlog.info("successfully configure quiche\n");
-  }
+QSocket::QSocket(int sock, quiche_conn *q_conn_) {
+  instream = new rdr::QInStream(sock, q_conn_);
+  outstream = new rdr::QOutStream(sock, q_conn_);
+  isShutdown_ = false;
 }
 
 // - Same as TcpSocket
-char *QSSocket::getPeerAddress() {
+char *QSocket::getPeerAddress() {
   vnc_sockaddr_t sa;
   socklen_t sa_size = sizeof(sa);
 
@@ -232,7 +211,7 @@ char *QSSocket::getPeerAddress() {
 }
 
 // - Same as TcpSocket
-char *QSSocket::getPeerEndpoint() {
+char *QSocket::getPeerEndpoint() {
   rfb::CharArray address;
   address.buf = getPeerAddress();
   vnc_sockaddr_t sa;
@@ -253,15 +232,3 @@ char *QSSocket::getPeerEndpoint() {
   sprintf(buffer, "%s::%d", address.buf, port);
   return buffer;
 }
-
-rdr::QSInStream &QSSocket::inStream() {
-  return instream ? *(instream = new QSInStream(qs_sock, config, conns))
-                  : *instream;
-}
-
-rdr::QSOutStream &QSSocket::outStream() {
-  return outstream ? *(outstream = new QSOutStream(qs_sock, config, conns))
-                   : *outstream;
-}
-
-QSSocket::~QSSocket() { quiche_config_free(config); }

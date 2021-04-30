@@ -3,7 +3,7 @@ include_directories(${CMAKE_SOURCE_DIR}/common)
 set(NETWORK_SOURCES
   Socket.cxx
   TcpSocket.cxx
-  QSSocket.cxx
+  QSocket.cxx
   )
 
 if(NOT WIN32)

@@ -16,18 +16,18 @@
  * USA.
  */
 
-// -=- QSSocket.h - base-class for UDP sockets using Quic on server end.
+// -=- QSocket.h - base-class for UDP sockets using Quic on server end.
 //     This header also defines the Quic listener class, used
 //     to listen for incoming socket connections over UDP
 
-#ifndef __NETWORK_QS_SOCKET_H__
-#define __NETWORK_QS_SOCKET_H__
+#ifndef __NETWORK_QSOCKET_H__
+#define __NETWORK_QSOCKET_H__
 
 #include <network/Socket.h>
 #include <quiche/quicheConfig.h>
 #include <rdr/Exception.h>
-#include <rdr/QSInStream.h>
-#include <rdr/QSOutStream.h>
+#include <rdr/QInStream.h>
+#include <rdr/QOutStream.h>
 
 #ifdef WIN32
 #include <winsock2.h>
@@ -42,28 +42,16 @@
 namespace network {
 
 int findFreeUDPPort(void);
+int createUDPSocket(const char* host, int port);
 
-class QSSocket : public Socket {
+class QSocket : public Socket {
  public:
-  QSSocket(int sock);
-  QSSocket(const char* name, int port);
-
-  rdr::QSInStream& inStream();
-  rdr::QSOutStream& outStream();
+  QSocket(int sock, quiche::quiche_conn* q_conn_);
 
   virtual char* getPeerAddress() override;
   virtual char* getPeerEndpoint() override;
 
-  ~QSSocket();
-
- private:
-  int qs_sock;
-
-  quiche_config* config;
-  conn_io* conns;
-
-  rdr::QSInStream* instream;
-  rdr::QSOutStream* outstream;
+  ~QSocket();
 };
 
 struct QuicheException : public rdr::SystemException {
@@ -73,4 +61,4 @@ struct QuicheException : public rdr::SystemException {
 
 }  // namespace network
 
-#endif  // __NETWORK_QS_SOCKET_H__
+#endif  // __NETWORK_QSOCKET_H__

@@ -23,11 +23,12 @@
 #include <rfb/LogWriter.h>
 
 using namespace rdr;
+using namespace quiche;
 
 static rfb::LogWriter vlog("QOutStream");
 
-QOutStream::QOutStream(int fd_, conn_io *conn_)
-    : FdOutStream(fd_), conn{conn_} {}
+QOutStream::QOutStream(int fd_, quiche_conn *q_conn_)
+    : FdOutStream(fd_), q_conn{q_conn_} {}
 
 QOutStream::~QOutStream() {}
 
@@ -51,9 +52,9 @@ bool QOutStream::flushBuffer() {
 
 size_t QOutStream::writeFd(const void *data, size_t length) {
   size_t write = 0;
-  if (quiche_conn_is_established(conn->q_conn)) {
-    write = quiche_conn_stream_send(conn->q_conn, 4, (const uint8_t *)data,
-                                    length, true);
+  if (quiche_conn_is_established(q_conn)) {
+    write =
+        quiche_conn_stream_send(q_conn, 4, (const uint8_t *)data, length, true);
     if (write < 0) {
       vlog.error("fail to send\n");
       throw SystemException("write", errno);

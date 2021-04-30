@@ -38,6 +38,8 @@ extern "C" {
 // QUIC transport API.
 //
 
+namespace quiche {
+  
 // The current QUIC wire version.
 #define QUICHE_PROTOCOL_VERSION 0xff000019
 
@@ -455,6 +457,8 @@ ssize_t quiche_h3_recv_body(quiche_h3_conn *conn, quiche_conn *quic_conn,
 
 // Frees the HTTP/3 connection object.
 void quiche_h3_conn_free(quiche_h3_conn *conn);
+
+}  // namespace quiche
 
 #if defined(__cplusplus)
 }  // extern C

@@ -26,11 +26,12 @@ namespace rdr {
 
 class QInStream : public FdInStream {
  public:
-  QInStream(int fd_, conn_io *conn_, bool close_when_done_ = false);
+  QInStream(int fd_, quiche::quiche_conn *q_conn_,
+            bool close_when_done_ = false);
   virtual ~QInStream();
 
  private:
-  conn_io *conn;
+  quiche::quiche_conn *q_conn;
 
   virtual bool fillBuffer(size_t maxSize) override;
   virtual size_t readFd(void *buf, size_t len) override;

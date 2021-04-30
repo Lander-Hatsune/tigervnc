@@ -9,13 +9,14 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <quicheServer.h>
-#include <rdr/QSInStream.h>
 #include <rfb/LogWriter.h>
 #include <unistd.h>
 
+using namespace quiche;
+
 static rfb::LogWriter vlog("quicheServer");
 
-void mint_token(const uint8_t *dcid, size_t dcid_len,
+void quiche::mint_token(const uint8_t *dcid, size_t dcid_len,
                 struct sockaddr_storage *addr, socklen_t addr_len,
                 uint8_t *token, size_t *token_len) {
   memcpy(token, "quiche", sizeof("quiche") - 1);
@@ -25,7 +26,7 @@ void mint_token(const uint8_t *dcid, size_t dcid_len,
   *token_len = sizeof("quiche") - 1 + addr_len + dcid_len;
 }
 
-bool validate_token(const uint8_t *token, size_t token_len,
+bool quiche::validate_token(const uint8_t *token, size_t token_len,
                     struct sockaddr_storage *addr, socklen_t addr_len,
                     uint8_t *odcid, size_t *odcid_len) {
   if ((token_len < sizeof("quiche") - 1) ||
@@ -53,7 +54,7 @@ bool validate_token(const uint8_t *token, size_t token_len,
   return true;
 }
 
-conn_io *create_conn(uint8_t *odcid, size_t odcid_len, conn_io *conns,
+conn_io *quiche::create_conn(uint8_t *odcid, size_t odcid_len, conn_io *conns,
                      quiche_config *config) {
   struct conn_io *conn = (conn_io *)malloc(sizeof(*conn));
   if (conn == NULL) {
@@ -88,7 +89,7 @@ conn_io *create_conn(uint8_t *odcid, size_t odcid_len, conn_io *conns,
   return conn;
 }
 
-void flush_egress(int fd, conn_io *conn) {
+void quiche::flush_egress(int fd, conn_io *conn) {
   static uint8_t out[MAX_DATAGRAM_SIZE];
 
   while (1) {

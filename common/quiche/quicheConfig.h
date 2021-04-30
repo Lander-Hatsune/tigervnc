@@ -13,6 +13,8 @@
 #include <sys/socket.h>
 #include <uthash.h>
 
+namespace quiche {
+  
 // - Quiche parameters and structs
 
 #define LOCAL_CONN_ID_LEN 16
@@ -33,5 +35,7 @@ struct conn_io {
 
   UT_hash_handle hh;  // - For hash table
 };
+
+}  // namespace quiche
 
 #endif  // _QUICHECONFIG_H_INCLUDED_

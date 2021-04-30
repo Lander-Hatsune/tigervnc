@@ -20,11 +20,12 @@
 #include <rfb/LogWriter.h>
 
 using namespace rdr;
+using namespace quiche;
 
 static rfb::LogWriter vlog("QInStream");
 
-QInStream::QInStream(int fd_, conn_io *conn_, bool close_when_done_)
-    : FdInStream(fd_, close_when_done_), conn{conn_} {}
+QInStream::QInStream(int fd_, quiche_conn *q_conn_, bool close_when_done_)
+    : FdInStream(fd_, close_when_done_), q_conn{q_conn_} {}
 
 QInStream::~QInStream() {}
 
@@ -39,17 +40,17 @@ bool QInStream::fillBuffer(size_t maxSize) {
 size_t QInStream::readFd(void *buf, size_t len) {
   uint8_t *buffer = (uint8_t *)buf;
   size_t recv_len = 0, curr_len = len;
-  if (quiche_conn_is_established(conn->q_conn)) {
+  if (quiche_conn_is_established(q_conn)) {
     uint64_t s = 0;
 
-    quiche_stream_iter *readable = quiche_conn_readable(conn->q_conn);
+    quiche_stream_iter *readable = quiche_conn_readable(q_conn);
 
     while (quiche_stream_iter_next(readable, &s)) {
       vlog.info("stream %" PRIu64 " is readable\n", s);
 
       bool fin = false;
       size_t curr_recv_len =
-          quiche_conn_stream_recv(conn->q_conn, s, buffer, curr_len, &fin);
+          quiche_conn_stream_recv(q_conn, s, buffer, curr_len, &fin);
       if (curr_recv_len < 0 || curr_len == curr_recv_len) {
         vlog.info("stream %" PRIu64 " over, read %zd bytes, expect %zd bytes\n",
                   s, recv_len, len);
@@ -61,8 +62,8 @@ size_t QInStream::readFd(void *buf, size_t len) {
 
       if (fin) {
         static const char *resp = "byez\n";
-        quiche_conn_stream_send_full(conn->q_conn, s, (uint8_t *)resp, 5, true,
-                                     200, 99999999999999);
+        quiche_conn_stream_send_full(q_conn, s, (uint8_t *)resp, 5, true, 200,
+                                     99999999999999);
         vlog.info("send: %s", resp);
       }
     }

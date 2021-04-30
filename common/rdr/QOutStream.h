@@ -31,11 +31,11 @@ namespace rdr {
 
 class QOutStream : public FdOutStream {
  public:
-  QOutStream(int fd_, conn_io *conn_);
+  QOutStream(int fd_, quiche::quiche_conn *q_conn_);
   virtual ~QOutStream();
 
  private:
-  conn_io *conn;
+  quiche::quiche_conn *q_conn;
 
  private:
   virtual bool flushBuffer() override;
