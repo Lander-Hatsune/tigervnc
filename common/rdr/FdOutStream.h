@@ -43,7 +43,7 @@ namespace rdr {
 
     virtual void cork(bool enable);
 
-  private:
+  protected:
     virtual bool flushBuffer();
     virtual size_t writeFd(const void* data, size_t length);
     int fd;

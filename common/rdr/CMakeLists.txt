@@ -6,8 +6,8 @@ add_library(rdr STATIC
   Exception.cxx
   FdInStream.cxx
   FdOutStream.cxx
-  QSInStream.cxx
-  QSOutStream.cxx
+  QInStream.cxx
+  QOutStream.cxx
   FileInStream.cxx
   HexInStream.cxx
   HexOutStream.cxx

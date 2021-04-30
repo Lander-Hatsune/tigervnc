@@ -15,16 +15,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307,
  * USA.
  */
-#include <errno.h>
-#include <fcntl.h>
 #include <inttypes.h>
 #include <rdr/QInStream.h>
 #include <rfb/LogWriter.h>
-#include <unistd.h>
 
 using namespace rdr;
 
-static rfb::LogWriter vlog("QInstream");
+static rfb::LogWriter vlog("QInStream");
 
 QInStream::QInStream(int fd_, conn_io *conn_, bool close_when_done_)
     : FdInStream(fd_, close_when_done_), conn{conn_} {}
@@ -51,7 +48,7 @@ size_t QInStream::readFd(void *buf, size_t len) {
       vlog.info("stream %" PRIu64 " is readable\n", s);
 
       bool fin = false;
-      ssize_t curr_recv_len =
+      size_t curr_recv_len =
           quiche_conn_stream_recv(conn->q_conn, s, buffer, curr_len, &fin);
       if (curr_recv_len < 0 || curr_len == curr_recv_len) {
         vlog.info("stream %" PRIu64 " over, read %zd bytes, expect %zd bytes\n",

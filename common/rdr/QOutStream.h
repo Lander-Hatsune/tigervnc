@@ -31,21 +31,15 @@ namespace rdr {
 
 class QOutStream : public FdOutStream {
  public:
-  QOutStream(int fd_, quiche_config *config_, conn_io *conns_,
-             bool close_when_done_ = false);
+  QOutStream(int fd_, conn_io *conn_);
   virtual ~QOutStream();
 
-  int getFd() { return fd; }
-
-  unsigned getIdleTime();
-
-  virtual void cork(bool enable);
+ private:
+  conn_io *conn;
 
  private:
   virtual bool flushBuffer() override;
   virtual size_t writeFd(const void *data, size_t length) override;
-  int fd;
-  struct timeval lastWrite;
 };
 
 }  // namespace rdr
