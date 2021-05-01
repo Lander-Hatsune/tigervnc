@@ -11,7 +11,7 @@ if(NOT WIN32)
 endif()
 
 add_library(network STATIC ${NETWORK_SOURCES})
-target_link_libraries(network ${CMAKE_SOURCE_DIR}/common/quiche/libquiche.a dl m)
+target_link_libraries(network blink)
 
 if(WIN32)
 	target_link_libraries(network ws2_32)

@@ -24,7 +24,7 @@
 #define __NETWORK_QSOCKET_H__
 
 #include <network/Socket.h>
-#include <quiche/quicheConfig.h>
+#include <blink/quicheConfig.h>
 #include <rdr/Exception.h>
 #include <rdr/QInStream.h>
 #include <rdr/QOutStream.h>
@@ -46,17 +46,14 @@ int createUDPSocket(const char* host, int port);
 
 class QSocket : public Socket {
  public:
-  QSocket(int sock, quiche::quiche_conn* q_conn_);
+  quiche::conn_io* conn;
+
+  QSocket(int sock, quiche::conn_io* conn_);
 
   virtual char* getPeerAddress() override;
   virtual char* getPeerEndpoint() override;
 
   ~QSocket();
-};
-
-struct QuicheException : public rdr::SystemException {
-  QuicheException(const char* text, int err_)
-      : rdr::SystemException(text, err_) {}
 };
 
 }  // namespace network

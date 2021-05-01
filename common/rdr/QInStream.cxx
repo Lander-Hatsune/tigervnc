@@ -24,8 +24,8 @@ using namespace quiche;
 
 static rfb::LogWriter vlog("QInStream");
 
-QInStream::QInStream(int fd_, quiche_conn *q_conn_, bool close_when_done_)
-    : FdInStream(fd_, close_when_done_), q_conn{q_conn_} {}
+QInStream::QInStream(int fd_, quiche_conn *q_conn_)
+    : FdInStream(fd_), q_conn{q_conn_} {}
 
 QInStream::~QInStream() {}
 

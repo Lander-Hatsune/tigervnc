@@ -9,12 +9,13 @@
 #ifndef _QUICHECONFIG_H_INCLUDED_
 #define _QUICHECONFIG_H_INCLUDED_
 
-#include <quiche/quiche.h>
+#include <blink/quiche.h>
+#include <rdr/Exception.h>
 #include <sys/socket.h>
 #include <uthash.h>
 
 namespace quiche {
-  
+
 // - Quiche parameters and structs
 
 #define LOCAL_CONN_ID_LEN 16
@@ -28,12 +29,17 @@ namespace quiche {
 struct conn_io {
   uint8_t cid[LOCAL_CONN_ID_LEN];  // - Connection id
 
-  quiche_conn *q_conn;  // - Quiche connection
+  quiche_conn* q_conn;  // - Quiche connection
 
   struct sockaddr_storage peer_addr;  // - Peer address info
   socklen_t peer_addr_len;
 
   UT_hash_handle hh;  // - For hash table
+};
+
+struct QuicheException : public rdr::SystemException {
+  QuicheException(const char* text, int err_)
+      : rdr::SystemException(text, err_) {}
 };
 
 }  // namespace quiche

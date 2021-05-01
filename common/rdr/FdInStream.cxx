@@ -1,15 +1,15 @@
 /* Copyright (C) 2002-2005 RealVNC Ltd.  All Rights Reserved.
- * 
+ *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This software is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this software; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307,
@@ -20,9 +20,9 @@
 #include <config.h>
 #endif
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
-#include <errno.h>
 #include <sys/time.h>
 #ifdef _WIN32
 #include <winsock2.h>
@@ -31,8 +31,8 @@
 #define errno WSAGetLastError()
 #include <os/winerrno.h>
 #else
-#include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 #endif
 
@@ -41,27 +41,21 @@
 #include <sys/select.h>
 #endif
 
-#include <rdr/FdInStream.h>
 #include <rdr/Exception.h>
+#include <rdr/FdInStream.h>
 
 using namespace rdr;
 
 FdInStream::FdInStream(int fd_, bool closeWhenDone_)
-  : fd(fd_), closeWhenDone(closeWhenDone_)
-{
-}
+    : fd(fd_), closeWhenDone(closeWhenDone_) {}
 
-FdInStream::~FdInStream()
-{
+FdInStream::~FdInStream() {
   if (closeWhenDone) close(fd);
 }
 
-
-bool FdInStream::fillBuffer(size_t maxSize)
-{
+bool FdInStream::fillBuffer(size_t maxSize) {
   size_t n = readFd((U8*)end, maxSize);
-  if (n == 0)
-    return false;
+  if (n == 0) return false;
   end += n;
 
   return true;
@@ -70,15 +64,14 @@ bool FdInStream::fillBuffer(size_t maxSize)
 //
 // readFd() reads up to the given length in bytes from the
 // file descriptor into a buffer. Zero is
-// returned if no bytes can be read. Otherwise it returns the number of bytes read.  It
-// never attempts to recv() unless select() indicates that the fd is readable -
-// this means it can be used on an fd which has been set non-blocking.  It also
-// has to cope with the annoying possibility of both select() and recv()
-// returning EINTR.
+// returned if no bytes can be read. Otherwise it returns the number of bytes
+// read.  It never attempts to recv() unless select() indicates that the fd is
+// readable - this means it can be used on an fd which has been set
+// non-blocking.  It also has to cope with the annoying possibility of both
+// select() and recv() returning EINTR.
 //
 
-size_t FdInStream::readFd(void* buf, size_t len)
-{
+size_t FdInStream::readFd(void* buf, size_t len) {
   int n;
   do {
     fd_set fds;
@@ -88,23 +81,19 @@ size_t FdInStream::readFd(void* buf, size_t len)
 
     FD_ZERO(&fds);
     FD_SET(fd, &fds);
-    n = select(fd+1, &fds, 0, 0, &tv);
+    n = select(fd + 1, &fds, 0, 0, &tv);
   } while (n < 0 && errno == EINTR);
 
-  if (n < 0)
-    throw SystemException("select",errno);
+  if (n < 0) throw SystemException("select", errno);
 
-  if (n == 0)
-    return 0;
+  if (n == 0) return 0;
 
   do {
     n = ::recv(fd, (char*)buf, len, 0);
   } while (n < 0 && errno == EINTR);
 
-  if (n < 0)
-    throw SystemException("read",errno);
-  if (n == 0)
-    throw EndOfStream();
+  if (n < 0) throw SystemException("read", errno);
+  if (n == 0) throw EndOfStream();
 
   return n;
 }

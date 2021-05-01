@@ -21,7 +21,7 @@
 //        e.g. 800x600.
 
 #include <errno.h>
-#include <network/QSSocket.h>
+#include <inttypes.h>
 #include <rfb/Configuration.h>
 #include <rfb/LogWriter.h>
 #include <rfb/Logger_stdio.h>
@@ -32,10 +32,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 // #include <network/UnixSocket.h>
-
 #include <X11/X.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <blink/quicheServer.h>
+#include <network/QSocket.h>
 #include <signal.h>
 #include <x0vncserver/Geometry.h>
 #include <x0vncserver/Image.h>
@@ -46,6 +47,7 @@ extern char buildtime[];
 
 using namespace rfb;
 using namespace network;
+using namespace quiche;
 
 static LogWriter vlog("Main");
 
@@ -61,7 +63,7 @@ IntParameter maxProcessorUsage("MaxProcessorUsage",
 StringParameter displayname("display", "The X display", "");
 StringParameter server_address("server_address", "The address of server",
                                "127.0.0.1");
-IntParameter rfbport("rfbport", "UDP port to listen for RFB protocol", 814);
+IntParameter rfbport("rfbport", "UDP port for RFB protocol", 814);
 // StringParameter rfbunixpath("rfbunixpath",
 //                             "Unix socket to listen for RFB protocol", "");
 // IntParameter rfbunixmode("rfbunixmode", "Unix socket access mode", 0600);
@@ -75,8 +77,9 @@ BoolParameter localhostOnly("localhost",
 //
 
 static bool caughtSignal = false;
-
 static void CleanupSignalHandler(int sig) { caughtSignal = true; }
+
+static conn_io *conns = NULL;
 
 char *programName;
 
@@ -153,202 +156,20 @@ int main(int argc, char **argv) {
     XDesktop desktop(dpy, &geo);
 
     VNCServerST server("x0vncserver", &desktop);
+
+    // - Create UDP socket
     char *addr = server_address.getData();
-    QSSocket *qs_socket = new QSSocket(addr, (int)rfbport);
+    int udp_sock = createUDPSocket(addr, (int)rfbport);
     delete[] addr;
-    server.addSocket(qs_socket);
-    vlog.info("Listening on port %d", (int)rfbport);
+
+    // - Configure quiche
+
+    quiche_config *config = quiche_configure_server();
 
     PollingScheduler sched((int)pollingCycle, (int)maxProcessorUsage);
 
+    // - Main loop
     while (!caughtSignal) {
-      //
-      {
-        struct conn_io *tmp, *conn = NULL;
-        static uint8_t out[MAX_DATAGRAM_SIZE];
-
-        ssize_t read, recv_len = 0;
-        while (1) {
-          struct sockaddr_storage peer_addr;
-          socklen_t peer_addr_len = sizeof(peer_addr);
-          memset(&peer_addr, 0, peer_addr_len);
-
-          read = recvfrom(fd, buf, 65535, 0, (struct sockaddr *)&peer_addr,
-                          &peer_addr_len);
-
-          if (read < 0) {
-            if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
-              vlog.error("read would block\n");
-              break;
-            }
-
-            vlog.error("fail to read\n");
-            break;
-          }
-
-          uint8_t type;
-          uint32_t version;
-
-          uint8_t scid[QUICHE_MAX_CONN_ID_LEN];
-          size_t scid_len = sizeof(scid);
-
-          uint8_t dcid[QUICHE_MAX_CONN_ID_LEN];
-          size_t dcid_len = sizeof(dcid);
-
-          uint8_t odcid[QUICHE_MAX_CONN_ID_LEN];
-          size_t odcid_len = sizeof(odcid);
-
-          uint8_t token[MAX_TOKEN_LEN];
-          size_t token_len = sizeof(token);
-
-          int rc = quiche_header_info((uint8_t *)buf, read, LOCAL_CONN_ID_LEN,
-                                      &version, &type, scid, &scid_len, dcid,
-                                      &dcid_len, token, &token_len);
-          if (rc < 0) {
-            vlog.error("failed to parse header: %d\n", rc);
-            continue;
-          }
-
-          HASH_FIND(hh, conns, dcid, dcid_len, conn);
-
-          if (conn == NULL) {
-            if (!quiche_version_is_supported(version)) {
-              vlog.error("version negotiation\n");
-
-              ssize_t written = quiche_negotiate_version(
-                  scid, scid_len, dcid, dcid_len, out, sizeof(out));
-
-              if (written < 0) {
-                vlog.error("failed to create vneg packet: %zd\n", written);
-                continue;
-              }
-
-              ssize_t sent =
-                  sendto(fd, out, written, 0, (struct sockaddr *)&peer_addr,
-                         peer_addr_len);
-              if (sent != written) {
-                vlog.error("failed to send\n");
-                continue;
-              }
-
-              vlog.info("sent %zd bytes\n", sent);
-              continue;
-            }
-
-            if (token_len == 0) {
-              vlog.error("stateless retry\n");
-
-              mint_token(dcid, dcid_len, &peer_addr, peer_addr_len, token,
-                         &token_len);
-
-              ssize_t written =
-                  quiche_retry(scid, scid_len, dcid, dcid_len, dcid, dcid_len,
-                               token, token_len, out, sizeof(out));
-
-              if (written < 0) {
-                vlog.error("failed to create retry packet: %zd\n", written);
-                continue;
-              }
-
-              ssize_t sent =
-                  sendto(fd, out, written, 0, (struct sockaddr *)&peer_addr,
-                         peer_addr_len);
-              if (sent != written) {
-                vlog.error("failed to send");
-                continue;
-              }
-
-              vlog.info("sent %zd bytes\n", sent);
-              continue;
-            }
-
-            if (!validate_token(token, token_len, &peer_addr, peer_addr_len,
-                                odcid, &odcid_len)) {
-              vlog.error("invalid address validation token\n");
-              continue;
-            }
-
-            if (!(conn = create_conn(odcid, odcid_len))) {
-              continue;
-            }
-
-            memcpy(&conn->peer_addr, &peer_addr, peer_addr_len);
-            conn->peer_addr_len = peer_addr_len;
-          }
-
-          ssize_t done = quiche_conn_recv(conn->q_conn, (uint8_t *)buf, read);
-
-          if (done < 0) {
-            vlog.error("failed to process packet: %zd\n", done);
-            continue;
-          }
-
-          vlog.info("recv %zd bytes\n", done);
-
-          if (quiche_conn_is_established(conn->q_conn)) {
-            uint64_t s = 0;
-
-            quiche_stream_iter *readable = quiche_conn_readable(conn->q_conn);
-
-            while (quiche_stream_iter_next(readable, &s)) {
-              vlog.info("stream %" PRIu64 " is readable\n", s);
-
-              bool fin = false;
-              ssize_t curr_recv_len = quiche_conn_stream_recv(
-                  conn->q_conn, s, (uint8_t *)buf, len, &fin);
-              if (curr_recv_len < 0 || curr_recv_len == len) {
-                break;
-              }
-              vlog.info("recv: length=%ld\n", curr_recv_len);
-
-              if (fin) {
-                static const char *resp = "byez\n";
-                quiche_conn_stream_send_full(conn->q_conn, s, (uint8_t *)resp,
-                                             5, true, 200, 99999999999999);
-                vlog.info("send: %s", resp);
-              }
-            }
-            quiche_stream_iter_free(readable);
-          }
-        }
-
-        HASH_ITER(hh, conns, conn, tmp) {
-          flush_egress(conn);
-
-          if (quiche_conn_is_closed(conn->q_conn)) {
-            quiche_stats stats;
-            quiche_conn_stats(conn->q_conn, &stats);
-            vlog.error(
-                "connection[id:%s] closed, recv=%zu sent=%zu lost=%zu "
-                "rtt=%" PRIu64 "ns cwnd=%zu\n",
-                (char *)conn->cid, stats.recv, stats.sent, stats.lost,
-                stats.rtt, stats.cwnd);
-
-            HASH_DELETE(hh, conns, conn);
-            quiche_conn_free(conn->q_conn);
-            free(conn);
-          }
-        }
-        ///////
-        HASH_ITER(hh, conns, conn, tmp) {
-          flush_egress(conn);
-
-          if (quiche_conn_is_closed(conn->q_conn)) {
-            quiche_stats stats;
-            quiche_conn_stats(conn->q_conn, &stats);
-            vlog.error(
-                "connection[id:%s] closed, recv=%zu sent=%zu lost=%zu "
-                "rtt=%" PRIu64 "ns cwnd=%zu\n",
-                (char *)conn->cid, stats.recv, stats.sent, stats.lost,
-                stats.rtt, stats.cwnd);
-
-            HASH_DELETE(hh, conns, conn);
-            quiche_conn_free(conn->q_conn);
-            free(conn);
-          }
-        }
-      }
-      //
       int wait_ms;
       struct timeval tv;
       fd_set rfds, wfds;
@@ -361,12 +182,27 @@ int main(int argc, char **argv) {
       FD_ZERO(&wfds);
 
       FD_SET(ConnectionNumber(dpy), &rfds);
-      FD_SET(qs_socket->getFd(), &rfds);
+      FD_SET(udp_sock, &rfds);
+
+      // Check client status
 
       server.getSockets(&sockets);
       int clients_connected = 0;
       for (auto i = sockets.begin(); i != sockets.end(); i++) {
-        if ((*i)->isShutdown()) {
+        QSocket *q_sock = (QSocket *)(*i);
+        if (quiche_conn_is_closed(q_sock->conn->q_conn)) {
+          quiche_stats stats;
+          quiche_conn_stats(q_sock->conn->q_conn, &stats);
+          vlog.error(
+              "connection[id:%s] closed, recv=%zu sent=%zu lost=%zu "
+              "rtt=%" PRIu64 "ns cwnd=%zu\n",
+              (char *)q_sock->conn->cid, stats.recv, stats.sent, stats.lost,
+              stats.rtt, stats.cwnd);
+
+          HASH_DELETE(hh, conns, q_sock->conn);
+          quiche_conn_free(q_sock->conn->q_conn);
+          free(q_sock->conn);
+
           server.removeSocket(*i);
           delete (*i);
         } else {
@@ -406,6 +242,132 @@ int main(int argc, char **argv) {
         }
       }
 
+      // Recognize or establish quiche connections
+
+      static uint8_t buf[0xffff];
+      static uint8_t out[MAX_DATAGRAM_SIZE];
+      struct conn_io *conn = NULL;
+
+      size_t read;
+      struct sockaddr_storage peer_addr;
+      socklen_t peer_addr_len = sizeof(peer_addr);
+      memset(&peer_addr, 0, peer_addr_len);
+
+      read = recvfrom(udp_sock, buf, sizeof(buf), 0,
+                      (struct sockaddr *)&peer_addr, &peer_addr_len);
+
+      if (read < 0) {
+        if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
+          vlog.error("read would block\n");
+          continue;
+        }
+
+        vlog.error("fail to read\n");
+        continue;
+      }
+
+      uint8_t type;
+      uint32_t version;
+
+      uint8_t scid[QUICHE_MAX_CONN_ID_LEN];
+      size_t scid_len = sizeof(scid);
+
+      uint8_t dcid[QUICHE_MAX_CONN_ID_LEN];
+      size_t dcid_len = sizeof(dcid);
+
+      uint8_t odcid[QUICHE_MAX_CONN_ID_LEN];
+      size_t odcid_len = sizeof(odcid);
+
+      uint8_t token[MAX_TOKEN_LEN];
+      size_t token_len = sizeof(token);
+
+      int rc = quiche_header_info((uint8_t *)buf, read, LOCAL_CONN_ID_LEN,
+                                  &version, &type, scid, &scid_len, dcid,
+                                  &dcid_len, token, &token_len);
+      if (rc < 0) {
+        vlog.error("failed to parse header: %d\n", rc);
+        continue;
+      }
+
+      HASH_FIND(hh, conns, dcid, dcid_len, conn);
+
+      if (conn == NULL) {
+        if (!quiche_version_is_supported(version)) {
+          vlog.error("version negotiation\n");
+
+          ssize_t written = quiche_negotiate_version(
+              scid, scid_len, dcid, dcid_len, out, sizeof(out));
+
+          if (written < 0) {
+            vlog.error("failed to create vneg packet: %zd\n", written);
+            continue;
+          }
+
+          ssize_t sent = sendto(udp_sock, out, written, 0,
+                                (struct sockaddr *)&peer_addr, peer_addr_len);
+          if (sent != written) {
+            vlog.error("failed to send\n");
+            continue;
+          }
+
+          vlog.info("sent %zd bytes\n", sent);
+          continue;
+        }
+
+        if (token_len == 0) {
+          vlog.error("stateless retry\n");
+
+          mint_token(dcid, dcid_len, &peer_addr, peer_addr_len, token,
+                     &token_len);
+
+          ssize_t written =
+              quiche_retry(scid, scid_len, dcid, dcid_len, dcid, dcid_len,
+                           token, token_len, out, sizeof(out));
+
+          if (written < 0) {
+            vlog.error("failed to create retry packet: %zd\n", written);
+            continue;
+          }
+
+          ssize_t sent = sendto(udp_sock, out, written, 0,
+                                (struct sockaddr *)&peer_addr, peer_addr_len);
+          if (sent != written) {
+            vlog.error("failed to send");
+            continue;
+          }
+
+          vlog.info("sent %zd bytes\n", sent);
+          continue;
+        }
+
+        if (!validate_token(token, token_len, &peer_addr, peer_addr_len, odcid,
+                            &odcid_len)) {
+          vlog.error("invalid address validation token\n");
+          continue;
+        }
+
+        if (!(conn = create_conn(odcid, odcid_len, conns, config))) {
+          continue;
+        }
+
+        memcpy(&conn->peer_addr, &peer_addr, peer_addr_len);
+        conn->peer_addr_len = peer_addr_len;
+
+        // Add new VNC connections
+
+        QSocket *q_sock = new QSocket(udp_sock, conn);
+        server.addSocket(q_sock);
+      }
+
+      ssize_t done = quiche_conn_recv(conn->q_conn, (uint8_t *)buf, read);
+
+      if (done < 0) {
+        vlog.error("failed to process packet: %zd\n", done);
+        continue;
+      }
+
+      vlog.info("recv %zd bytes\n", done);
+
       Timer::checkTimeouts();
 
       // Client list could have been changed.
@@ -415,6 +377,7 @@ int main(int argc, char **argv) {
       if (sockets.empty()) continue;
 
       // Process events on existing VNC connections
+
       for (auto i = sockets.begin(); i != sockets.end(); i++) {
         if (FD_ISSET((*i)->getFd(), &rfds)) server.processSocketReadEvent(*i);
         if (FD_ISSET((*i)->getFd(), &wfds)) server.processSocketWriteEvent(*i);
@@ -425,7 +388,6 @@ int main(int argc, char **argv) {
         desktop.poll();
       }
     }
-
   } catch (rdr::Exception &e) {
     vlog.error("%s", e.str());
     return 1;

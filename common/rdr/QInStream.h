@@ -19,15 +19,14 @@
 #ifndef __RDR_QInStream_H__
 #define __RDR_QInStream_H__
 
-#include <quiche/quicheConfig.h>
+#include <blink/quicheConfig.h>
 #include <rdr/FdInStream.h>
 
 namespace rdr {
 
 class QInStream : public FdInStream {
  public:
-  QInStream(int fd_, quiche::quiche_conn *q_conn_,
-            bool close_when_done_ = false);
+  QInStream(int fd_, quiche::quiche_conn *q_conn_);
   virtual ~QInStream();
 
  private:

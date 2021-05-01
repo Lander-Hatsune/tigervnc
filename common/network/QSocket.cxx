@@ -152,7 +152,7 @@ int network::createUDPSocket(const char *host, int port) {
     }
 
     freeaddrinfo(ai);
-    vlog.info("successfully create a UDP socket\n");
+    vlog.info("successfully create a UDP socket at port %d\n", port);
   }
 
   return sock;
@@ -160,9 +160,9 @@ int network::createUDPSocket(const char *host, int port) {
 
 // -=- QSocket
 
-QSocket::QSocket(int sock, quiche_conn *q_conn_) {
-  instream = new rdr::QInStream(sock, q_conn_);
-  outstream = new rdr::QOutStream(sock, q_conn_);
+QSocket::QSocket(int sock, conn_io *conn_) : Socket{false}, conn{conn_} {
+  instream = new rdr::QInStream(sock, conn_->q_conn);
+  outstream = new rdr::QOutStream(sock, conn_->q_conn);
   isShutdown_ = false;
 }
 
@@ -232,3 +232,5 @@ char *QSocket::getPeerEndpoint() {
   sprintf(buffer, "%s::%d", address.buf, port);
   return buffer;
 }
+
+QSocket::~QSocket() {}

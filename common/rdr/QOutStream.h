@@ -24,7 +24,7 @@
 #ifndef __RDR_QOUTSTREAM_H__
 #define __RDR_QOUTSTREAM_H__
 
-#include <quiche/quicheConfig.h>
+#include <blink/quicheConfig.h>
 #include <rdr/FdOutStream.h>
 
 namespace rdr {

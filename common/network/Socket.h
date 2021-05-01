@@ -36,7 +36,7 @@ bool isSocketListening(int sock);
 
 class Socket {
  public:
-  Socket(int fd);
+  Socket(int fd, bool closeWhenDone_ = true);
   virtual ~Socket();
 
   rdr::FdInStream& inStream() { return *instream; }
@@ -61,8 +61,9 @@ class Socket {
   rdr::FdOutStream* outstream;
   bool isShutdown_;
   bool queryConnection;
+  bool closeWhenDone;
 
-  Socket();
+  Socket(bool closeWhenDone_ = true);
 
   void setFd(int fd);
 };

@@ -2,6 +2,7 @@ add_subdirectory(os)
 add_subdirectory(rdr)
 add_subdirectory(network)
 add_subdirectory(rfb)
+add_subdirectory(blink)
 
 # For any convenience libraries that are linked into libvnc.so, we need to
 # explicitly build their corresponding sources using PIC.  WIN32 is excluded
@@ -9,6 +10,6 @@ add_subdirectory(rfb)
 # is passed (additionally, libvnc is not used on Windows.)
 
 if(NOT WIN32)
-  set_target_properties(os rdr network rfb
+  set_target_properties(os rdr network rfb blink
     PROPERTIES COMPILE_FLAGS -fPIC)
 endif()
