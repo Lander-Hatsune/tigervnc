@@ -56,7 +56,7 @@
 // #include <network/TcpSocket.h>
 #include <os/os.h>
 
-#include <blink/quicheServer.h>
+#include <blink/quicheClient.h>
 #include <network/QSocket.h>
 
 #include <FL/Fl.H>
@@ -80,13 +80,17 @@
 #include "win32.h"
 #endif
 
-rfb::LogWriter vlog("main");
 
 using namespace network;
 using namespace rfb;
 using namespace std;
 
+using namespace quiche;
+
 char vncServerName[VNCSERVERNAMELEN] = { '\0' };
+rfb::LogWriter vlog("main");
+IntParameter rfbport("rfbport", "UDP port for RFB protocol", 814);
+
 
 static const char *argv0 = NULL;
 
@@ -502,7 +506,7 @@ static int mktunnel()
 {
   const char *gatewayHost;
   char remoteHost[VNCSERVERNAMELEN];
-  int localPort = findFreeTcpPort();
+  int localPort = findFreeUDPPort();
   int remotePort;
 
   if (interpretViaParam(remoteHost, &remotePort, localPort) != 0)
@@ -639,7 +643,7 @@ int main(int argc, char** argv)
     return 1; /* Not reached */
   }
 #endif
-
+  /*
   if (listenMode) {
     std::list<SocketListener*> listeners;
     try {
@@ -651,7 +655,7 @@ int main(int argc, char** argv)
 
       vlog.info(_("Listening on port %d"), port);
 
-      /* Wait for a connection */
+      // Wait for a connection 
       while (sock == NULL) {
         fd_set rfds;
         FD_ZERO(&rfds);
@@ -676,21 +680,22 @@ int main(int argc, char** argv)
           if (FD_ISSET((*i)->getFd(), &rfds)) {
             sock = (*i)->accept();
             if (sock)
-              /* Got a connection */
+            // Got a connection 
               break;
           }
       }
     } catch (rdr::Exception& e) {
       vlog.error("%s", e.str());
       exit_vncviewer(_("Failure waiting for incoming VNC connection:\n\n%s"), e.str());
-      return 1; /* Not reached */
+      return 1; // Not reached
     }
 
     while (!listeners.empty()) {
       delete listeners.back();
       listeners.pop_back();
     }
-  } else {
+  } else */
+  {
     if (vncServerName[0] == '\0') {
       ServerDialog::run(defaultServerName, vncServerName);
       if (vncServerName[0] == '\0')
@@ -709,7 +714,37 @@ int main(int argc, char** argv)
   // - Configure quiche
   quiche_config *config = quiche_configure_client();
 
-  CConn *cc = new CConn(vncServerName, sock);
+  uint8_t scid[LOCAL_CONN_ID_LEN];
+  int rng = open("/dev/urandom", O_RDONLY);
+  if (rng < 0) {
+    perror("failed to open /dev/urandom");
+    return -1;
+  }
+
+  ssize_t rand_len = read(rng, &scid, sizeof(scid));
+  if (rand_len < 0) {
+    perror("failed to create connection ID");
+    return -1;
+  }
+
+  quiche_conn *conn =
+      quiche_connect(vncServerName, (const uint8_t *)scid, sizeof(scid), config);
+  if (conn == NULL) {
+    fprintf(stderr, "failed to create connection\n");
+    return -1;
+  }
+
+  struct conn_io *conn_io_ = (conn_io *) malloc(sizeof(conn_io *));
+  if (conn_io_ == NULL) {
+    fprintf(stderr, "failed to allocate connection IO\n");
+    return -1;
+  }
+
+  conn_io_->q_conn = conn;
+
+  QSocket *q_sock = new QSocket(udp_sock, conn_io_);
+
+  CConn *cc = new CConn(vncServerName, q_sock);
 
   inMainloop = true;
   while (!exitMainloop)

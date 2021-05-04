@@ -5,6 +5,9 @@
 #include <rfb/LogWriter.h>
 #include <unistd.h>
 
+using namespace quiche;
+static rfb::LogWriter vlog("quicheClient");
+
 quiche_config* quiche::quiche_configure_client() {
   quiche_config *config = quiche_config_new(QUICHE_PROTOCOL_VERSION);
   if (config == NULL) {
