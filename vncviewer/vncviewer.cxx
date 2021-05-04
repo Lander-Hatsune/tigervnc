@@ -53,8 +53,11 @@
 #include <rfb/LogWriter.h>
 #include <rfb/Timer.h>
 #include <rfb/Exception.h>
-#include <network/TcpSocket.h>
+// #include <network/TcpSocket.h>
 #include <os/os.h>
+
+#include <blink/quicheServer.h>
+#include <network/QSocket.h>
 
 #include <FL/Fl.H>
 #include <FL/Fl_Widget.H>
@@ -699,6 +702,12 @@ int main(int argc, char** argv)
       usage(argv[0]);
 #endif
   }
+
+  // - Create UDP socket
+  int udp_sock = createUDPSocket(vncServerName, (int)rfbport);
+
+  // - Configure quiche
+  quiche_config *config = quiche_configure_client();
 
   CConn *cc = new CConn(vncServerName, sock);
 
