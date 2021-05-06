@@ -23,8 +23,8 @@
 #ifndef __NETWORK_QSOCKET_H__
 #define __NETWORK_QSOCKET_H__
 
-#include <network/Socket.h>
 #include <blink/quicheConfig.h>
+#include <network/Socket.h>
 #include <rdr/Exception.h>
 #include <rdr/QInStream.h>
 #include <rdr/QOutStream.h>
@@ -41,8 +41,10 @@
 
 namespace network {
 
+#define DEFAULT_UDP_PORT 49152
+enum UDPSocketParam { BIND, CONNECT };
 int findFreeUDPPort(void);
-int createUDPSocket(const char* host, int port);
+int createUDPSocket(const char* host, int port, UDPSocketParam udp_param);
 
 class QSocket : public Socket {
  public:

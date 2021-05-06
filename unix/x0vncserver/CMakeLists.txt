@@ -4,6 +4,8 @@ include_directories(${CMAKE_SOURCE_DIR}/unix/tx)
 include_directories(${CMAKE_SOURCE_DIR}/unix)
 include_directories(${CMAKE_SOURCE_DIR}/common)
 
+add_definitions("-Wall -g")
+
 add_executable(x0vncserver
   buildtime.c
   Geometry.cxx

@@ -100,20 +100,23 @@ int network::findFreeUDPPort(void) {
   return ntohs(addr.sin_port);
 }
 
-int network::createUDPSocket(const char *host, int port) {
+int network::createUDPSocket(const char *host, int port,
+                             UDPSocketParam udp_param) {
   int sock, err, result;
   struct addrinfo *ai, hints;
 
   // - Create a UDP socket
 
-  memset(&hints, 0, sizeof(struct addrinfo));
+  memset(&hints, 0, sizeof(addrinfo));
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_DGRAM;
   hints.ai_canonname = NULL;
   hints.ai_addr = NULL;
   hints.ai_next = NULL;
 
-  if ((result = getaddrinfo(host, NULL, &hints, &ai)) != 0) {
+  char port_str[6];  // len(65535) + 1
+  sprintf(port_str, "%d", port);
+  if ((result = getaddrinfo(host, port_str, &hints, &ai)) != 0) {
     throw GAIException("unable to resolve host by name", result);
   }
 
@@ -123,14 +126,12 @@ int network::createUDPSocket(const char *host, int port) {
 
   if (sock == -1) {
     err = errorNumber;
-    freeaddrinfo(ai);
     throw SocketException("unable to create a UDP socket", err);
   } else {
     // - Set the sock nonblock
 
     if (fcntl(sock, F_SETFL, O_NONBLOCK) != 0) {
       err = errorNumber;
-      freeaddrinfo(ai);
       throw SocketException("failed to make socket non-blocking", err);
     }
 
@@ -138,21 +139,29 @@ int network::createUDPSocket(const char *host, int port) {
     // - By default, close the socket on exec()
     if (fcntl(sock, F_SETFD, FD_CLOEXEC)) {
       err = errorNumber;
-      freeaddrinfo(ai);
       throw SocketException("failed to make socket non-blocking", err);
     }
 #endif
 
-    // - Bind the socket
-
-    if (bind(sock, ai->ai_addr, ai->ai_addrlen) < 0) {
-      err = errorNumber;
-      freeaddrinfo(ai);
-      throw SocketException("failed to bind socket", err);
+    switch (udp_param) {
+      case BIND:
+        // - Bind the socket(server end)
+        if (bind(sock, ai->ai_addr, ai->ai_addrlen) < 0) {
+          throw SocketException("failed to bind socket", errno);
+        }
+        vlog.info("successfully bind to UDP socket at %s:%d", host, port);
+        break;
+      case CONNECT:
+        // - connect use the socket(client end)
+        if (connect(sock, ai->ai_addr, ai->ai_addrlen) < 0) {
+          throw SocketException("failed to connect socket", errno);
+        }
+        vlog.info("successfully connect to UDP socket %s:%d", host, port);
+        break;
+      default:
+        throw SocketException("Bad UDPSocketParam", 0);
+        return -1;
     }
-
-    freeaddrinfo(ai);
-    vlog.info("successfully create a UDP socket at port %d\n", port);
   }
 
   return sock;

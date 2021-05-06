@@ -63,7 +63,7 @@ IntParameter maxProcessorUsage("MaxProcessorUsage",
 StringParameter displayname("display", "The X display", "");
 StringParameter server_address("server_address", "The address of server",
                                "127.0.0.1");
-IntParameter rfbport("rfbport", "UDP port for RFB protocol", 814);
+IntParameter rfbport("rfbport", "UDP port for RFB protocol", DEFAULT_UDP_PORT);
 // StringParameter rfbunixpath("rfbunixpath",
 //                             "Unix socket to listen for RFB protocol", "");
 // IntParameter rfbunixmode("rfbunixmode", "Unix socket access mode", 0600);
@@ -79,6 +79,7 @@ BoolParameter localhostOnly("localhost",
 static bool caughtSignal = false;
 static void CleanupSignalHandler(int sig) { caughtSignal = true; }
 
+static quiche_config *config = NULL;
 static conn_io *conns = NULL;
 
 char *programName;
@@ -159,12 +160,12 @@ int main(int argc, char **argv) {
 
     // - Create UDP socket
     char *addr = server_address.getData();
-    int udp_sock = createUDPSocket(addr, (int)rfbport);
+    int udp_sock = createUDPSocket(addr, (int)rfbport, BIND);
     delete[] addr;
 
     // - Configure quiche
 
-    quiche_config *config = quiche_configure_server();
+    config = quiche_configure_server();
 
     PollingScheduler sched((int)pollingCycle, (int)maxProcessorUsage);
 
@@ -195,13 +196,13 @@ int main(int argc, char **argv) {
           quiche_conn_stats(q_sock->conn->q_conn, &stats);
           vlog.error(
               "connection[id:%s] closed, recv=%zu sent=%zu lost=%zu "
-              "rtt=%" PRIu64 "ns cwnd=%zu\n",
+              "rtt=%" PRIu64 "ns cwnd=%zu",
               (char *)q_sock->conn->cid, stats.recv, stats.sent, stats.lost,
               stats.rtt, stats.cwnd);
 
           HASH_DELETE(hh, conns, q_sock->conn);
           quiche_conn_free(q_sock->conn->q_conn);
-          free(q_sock->conn);
+          delete q_sock->conn;
 
           server.removeSocket(*i);
           delete (*i);
@@ -258,11 +259,11 @@ int main(int argc, char **argv) {
 
       if (read < 0) {
         if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
-          vlog.error("read would block\n");
+          vlog.error("read would block");
           continue;
         }
 
-        vlog.error("fail to read\n");
+        vlog.error("fail to read");
         continue;
       }
 
@@ -285,7 +286,7 @@ int main(int argc, char **argv) {
                                   &version, &type, scid, &scid_len, dcid,
                                   &dcid_len, token, &token_len);
       if (rc < 0) {
-        vlog.error("failed to parse header: %d\n", rc);
+        vlog.error("failed to parse header: %d", rc);
         continue;
       }
 
@@ -293,39 +294,13 @@ int main(int argc, char **argv) {
 
       if (conn == NULL) {
         if (!quiche_version_is_supported(version)) {
-          vlog.error("version negotiation\n");
+          vlog.error("version negotiation");
 
           ssize_t written = quiche_negotiate_version(
               scid, scid_len, dcid, dcid_len, out, sizeof(out));
 
           if (written < 0) {
-            vlog.error("failed to create vneg packet: %zd\n", written);
-            continue;
-          }
-
-          ssize_t sent = sendto(udp_sock, out, written, 0,
-                                (struct sockaddr *)&peer_addr, peer_addr_len);
-          if (sent != written) {
-            vlog.error("failed to send\n");
-            continue;
-          }
-
-          vlog.info("sent %zd bytes\n", sent);
-          continue;
-        }
-
-        if (token_len == 0) {
-          vlog.error("stateless retry\n");
-
-          mint_token(dcid, dcid_len, &peer_addr, peer_addr_len, token,
-                     &token_len);
-
-          ssize_t written =
-              quiche_retry(scid, scid_len, dcid, dcid_len, dcid, dcid_len,
-                           token, token_len, out, sizeof(out));
-
-          if (written < 0) {
-            vlog.error("failed to create retry packet: %zd\n", written);
+            vlog.error("failed to create vneg packet: %zd", written);
             continue;
           }
 
@@ -336,17 +311,43 @@ int main(int argc, char **argv) {
             continue;
           }
 
-          vlog.info("sent %zd bytes\n", sent);
+          vlog.info("sent %zd bytes", sent);
+          continue;
+        }
+
+        if (token_len == 0) {
+          vlog.error("stateless retry");
+
+          mint_token(dcid, dcid_len, &peer_addr, peer_addr_len, token,
+                     &token_len);
+
+          ssize_t written =
+              quiche_retry(scid, scid_len, dcid, dcid_len, dcid, dcid_len,
+                           token, token_len, out, sizeof(out));
+
+          if (written < 0) {
+            vlog.error("failed to create retry packet: %zd", written);
+            continue;
+          }
+
+          ssize_t sent = sendto(udp_sock, out, written, 0,
+                                (struct sockaddr *)&peer_addr, peer_addr_len);
+          if (sent != written) {
+            vlog.error("failed to send");
+            continue;
+          }
+
+          vlog.info("sent %zd bytes", sent);
           continue;
         }
 
         if (!validate_token(token, token_len, &peer_addr, peer_addr_len, odcid,
                             &odcid_len)) {
-          vlog.error("invalid address validation token\n");
+          vlog.error("invalid address validation token");
           continue;
         }
 
-        if (!(conn = create_conn(odcid, odcid_len, conns, config))) {
+        if (!(conn = create_conn_server(odcid, odcid_len, conns, config))) {
           continue;
         }
 
@@ -362,11 +363,11 @@ int main(int argc, char **argv) {
       ssize_t done = quiche_conn_recv(conn->q_conn, (uint8_t *)buf, read);
 
       if (done < 0) {
-        vlog.error("failed to process packet: %zd\n", done);
+        vlog.error("failed to process packet: %zd", done);
         continue;
       }
 
-      vlog.info("recv %zd bytes\n", done);
+      vlog.info("recv %zd bytes", done);
 
       Timer::checkTimeouts();
 
@@ -392,6 +393,8 @@ int main(int argc, char **argv) {
     vlog.error("%s", e.str());
     return 1;
   }
+
+  quiche_config_free(config);
 
   TXWindow::handleXEvents(dpy);
 

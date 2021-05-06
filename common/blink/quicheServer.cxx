@@ -35,8 +35,9 @@ quiche_config *quiche::quiche_configure_server() {
     quiche_config_set_initial_max_stream_data_bidi_remote(config, 1000000);
     quiche_config_set_initial_max_streams_bidi(config, 100);
     quiche_config_set_cc_algorithm(config, QUICHE_CC_RENO);
-    vlog.info("successfully configure quiche\n");
+    vlog.info("successfully configure quiche");
   }
+  return config;
 }
 
 void quiche::mint_token(const uint8_t *dcid, size_t dcid_len,
@@ -77,71 +78,41 @@ bool quiche::validate_token(const uint8_t *token, size_t token_len,
   return true;
 }
 
-conn_io *quiche::create_conn(uint8_t *odcid, size_t odcid_len, conn_io *conns,
-                             quiche_config *config) {
-  struct conn_io *conn = (conn_io *)malloc(sizeof(*conn));
+conn_io *quiche::create_conn_server(uint8_t *odcid, size_t odcid_len,
+                                    conn_io *conns, quiche_config *config) {
+  conn_io *conn = new conn_io;
   if (conn == NULL) {
-    vlog.error("failed to allocate connection IO\n");
-    QuicheException("failed to allocate connection IO", 0);
+    vlog.error("failed to allocate connection IO");
+    throw QuicheException("failed to allocate connection IO", 0);
     return NULL;
   }
 
   int rng = open("/dev/urandom", O_RDONLY);
   if (rng < 0) {
-    vlog.error("failed to open /dev/urandom\n");
-    QuicheException("failed to open /dev/urandom", 0);
+    vlog.error("failed to open /dev/urandom");
+    throw QuicheException("failed to open /dev/urandom", 0);
     return NULL;
   }
 
   ssize_t rand_len = read(rng, conn->cid, LOCAL_CONN_ID_LEN);
   if (rand_len < 0) {
-    vlog.error("failed to create connection ID\n");
-    QuicheException("failed to create connection ID", 0);
+    vlog.error("failed to create connection ID");
+    throw QuicheException("failed to create connection ID", 0);
     return NULL;
   }
 
   quiche_conn *q_conn =
       quiche_accept(conn->cid, LOCAL_CONN_ID_LEN, odcid, odcid_len, config);
   if (conn == NULL) {
-    vlog.error("failed to create connection\n");
-    QuicheException("failed to create connection", 0);
+    vlog.error("failed to create connection");
+    throw QuicheException("failed to create connection", 0);
     return NULL;
   }
   conn->q_conn = q_conn;
 
   HASH_ADD(hh, conns, cid, LOCAL_CONN_ID_LEN, conn);
 
-  vlog.info("new connection\n");
+  vlog.info("new connection");
 
   return conn;
-}
-
-void quiche::flush_egress(int fd, conn_io *conn) {
-  static uint8_t out[MAX_DATAGRAM_SIZE];
-
-  while (1) {
-    ssize_t written = quiche_conn_send(conn->q_conn, out, sizeof(out));
-
-    if (written == QUICHE_ERR_DONE) {
-      vlog.info("done writing\n");
-      break;
-    }
-
-    if (written < 0) {
-      vlog.error("failed to create packet: %zd\n", written);
-      QuicheException("failed to create packet", 0);
-      return;
-    }
-
-    ssize_t sent =
-        sendto(fd, out, written, 0, (struct sockaddr *)&conn->peer_addr,
-               conn->peer_addr_len);
-    if (sent != written) {
-      vlog.error("failed to send\n");
-      QuicheException("failed to send", 0);
-      return;
-    }
-
-    vlog.info("sent %zd bytes\n", sent);
-  }
 }

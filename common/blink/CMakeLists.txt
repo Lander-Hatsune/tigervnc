@@ -1,6 +1,7 @@
 include_directories(${CMAKE_SOURCE_DIR}/common)
 
 set(QUICHE_SOURCES
+  quicheCommon.cxx
   quicheServer.cxx
   quicheClient.cxx
   )

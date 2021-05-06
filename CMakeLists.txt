@@ -2,6 +2,9 @@
 # Setup
 #
 
+# blink debug
+add_definitions("-Wall -g")
+
 cmake_minimum_required(VERSION 2.8.11)
 if(POLICY CMP0022)
   cmake_policy(SET CMP0022 OLD)
