@@ -87,8 +87,9 @@ using namespace quiche;
 char vncServerName[VNCSERVERNAMELEN] = {'\0'};
 rfb::LogWriter vlog("main");
 IntParameter rfbport("rfbport", "UDP port for RFB protocol", DEFAULT_UDP_PORT);
-StringParameter default_server_address("default_server_address", "The default address of server",
-                               "127.0.0.1");
+StringParameter default_server_address("default_server_address",
+                                       "The default address of server",
+                                       "127.0.0.1");
 
 static const char *argv0 = NULL;
 
@@ -430,7 +431,7 @@ static void potentiallyLoadConfigurationFile(char *vncServerName) {
 
 #ifndef WIN32
 static int interpretViaParam(char *remoteHost, int *remotePort, int localPort) {
-  const int SERVER_PORT_OFFSET = 5900;
+  const int SERVER_PORT_OFFSET = DEFAULT_UDP_PORT;
   char *pos = strchr(vncServerName, ':');
   if (pos == NULL)
     *remotePort = SERVER_PORT_OFFSET;
@@ -531,16 +532,18 @@ int main(int argc, char **argv) {
 
   /* Load the default parameter settings */
   char defaultServerName[VNCSERVERNAMELEN] = "";
-  try {
-    const char *configServerName;
-    configServerName = loadViewerParameters(NULL);
-    if (configServerName != NULL) {
-      strncpy(defaultServerName, configServerName, VNCSERVERNAMELEN - 1);
-      defaultServerName[VNCSERVERNAMELEN - 1] = '\0';
-    }
-  } catch (rfb::Exception &e) {
-    vlog.error("%s", e.str());
-  }
+  sprintf(defaultServerName, "%s:%d", default_server_address.getData(),
+          (int)rfbport);
+  // try {
+  //   const char *configServerName;
+  //   configServerName = loadViewerParameters(NULL);
+  //   if (configServerName != NULL) {
+  //     strncpy(defaultServerName, configServerName, VNCSERVERNAMELEN - 1);
+  //     defaultServerName[VNCSERVERNAMELEN - 1] = '\0';
+  //   }
+  // } catch (rfb::Exception &e) {
+  //   vlog.error("%s", e.str());
+  // }
 
   for (int i = 1; i < argc;) {
     /* We need to resolve an ambiguity for booleans */
@@ -595,7 +598,7 @@ int main(int argc, char **argv) {
   // enable_touch();
 
   // Check if the server name in reality is a configuration file
-  potentiallyLoadConfigurationFile(vncServerName);
+  // potentiallyLoadConfigurationFile(vncServerName);
 
   mkvnchomedir();
 
@@ -674,12 +677,16 @@ int main(int argc, char **argv) {
   //     if (strlen(via.getValueStr()) > 0 && mktunnel() != 0) usage(argv[0]);
   // #endif
   //   }
-  strncpy(vncServerName, default_server_address.getData(), VNCSERVERNAMELEN);
+
+  // TODO: Currently UI input is disabled
+  ServerDialog::run(defaultServerName, vncServerName);
+  if (vncServerName[0] == '\0') return 1;
 
   QSocket *q_sock;
   try {
-    // - Create UDP socket
-    int udp_sock = createUDPSocket(vncServerName, (int)rfbport, CONNECT);
+    // - Create UDP socket(use default configuration instead of UI input)
+    int udp_sock = createUDPSocket(default_server_address.getData(),
+                                   (int)rfbport, CONNECT);
 
     // - Configure quiche
     config = quiche_configure_client();
