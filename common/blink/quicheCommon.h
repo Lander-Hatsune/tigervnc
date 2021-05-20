@@ -21,7 +21,7 @@
 
 namespace quiche {
 
-void flush_egress(int fd, conn_io *conn);
+void flush_egress(int fd, conn_io *conn, bool server = true);
 
 };  // namespace quiche
 

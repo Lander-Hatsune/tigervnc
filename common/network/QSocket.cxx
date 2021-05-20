@@ -164,6 +164,8 @@ int network::createUDPSocket(const char *host, int port,
     }
   }
 
+  freeaddrinfo(ai);
+
   return sock;
 }
 
@@ -175,66 +177,17 @@ QSocket::QSocket(int sock, conn_io *conn_) : Socket{false}, conn{conn_} {
   isShutdown_ = false;
 }
 
-// - Same as TcpSocket
 char *QSocket::getPeerAddress() {
-  vnc_sockaddr_t sa;
-  socklen_t sa_size = sizeof(sa);
-
-  if (getpeername(getFd(), &sa.u.sa, &sa_size) != 0) {
-    vlog.error("unable to get peer name for socket");
-    return rfb::strDup("");
-  }
-
-  if (sa.u.sa.sa_family == AF_INET6) {
-    char buffer[INET6_ADDRSTRLEN + 2];
-    int ret;
-
-    buffer[0] = '[';
-
-    ret = getnameinfo(&sa.u.sa, sizeof(sa.u.sin6), buffer + 1,
-                      sizeof(buffer) - 2, NULL, 0, NI_NUMERICHOST);
-    if (ret != 0) {
-      vlog.error("unable to convert peer name to a string");
-      return rfb::strDup("");
-    }
-
-    strcat(buffer, "]");
-
-    return rfb::strDup(buffer);
-  }
-
-  if (sa.u.sa.sa_family == AF_INET) {
-    char *name;
-
-    name = inet_ntoa(sa.u.sin.sin_addr);
-    if (name == NULL) {
-      vlog.error("unable to convert peer name to a string");
-      return rfb::strDup("");
-    }
-
-    return rfb::strDup(name);
-  }
-
-  vlog.error("unknown address family for socket");
-  return rfb::strDup("");
+  struct sockaddr_in *sin = (struct sockaddr_in *)&conn->peer_addr;
+  return rfb::strDup(inet_ntoa(sin->sin_addr));
 }
 
 // - Same as TcpSocket
 char *QSocket::getPeerEndpoint() {
+  struct sockaddr_in *sin = (struct sockaddr_in *)&conn->peer_addr;
   rfb::CharArray address;
   address.buf = getPeerAddress();
-  vnc_sockaddr_t sa;
-  socklen_t sa_size = sizeof(sa);
-  int port;
-
-  getpeername(getFd(), &sa.u.sa, &sa_size);
-
-  if (sa.u.sa.sa_family == AF_INET6)
-    port = ntohs(sa.u.sin6.sin6_port);
-  else if (sa.u.sa.sa_family == AF_INET)
-    port = ntohs(sa.u.sin.sin_port);
-  else
-    port = 0;
+  int port = sin->sin_port;
 
   int buflen = strlen(address.buf) + 32;
   char *buffer = new char[buflen];

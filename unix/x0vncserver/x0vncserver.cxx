@@ -60,7 +60,7 @@ IntParameter maxProcessorUsage("MaxProcessorUsage",
                                "Maximum percentage of "
                                "CPU time to be consumed",
                                35);
-StringParameter displayname("display", "The X display", "");
+StringParameter displayname("display", "The X display", ":0");
 StringParameter server_address("server_address", "The address of server",
                                "127.0.0.1");
 IntParameter rfbport("rfbport", "UDP port for RFB protocol", DEFAULT_UDP_PORT);
@@ -184,6 +184,7 @@ int main(int argc, char **argv) {
 
       FD_SET(ConnectionNumber(dpy), &rfds);
       FD_SET(udp_sock, &rfds);
+      FD_SET(udp_sock, &wfds);
 
       // Check client status
 
@@ -191,6 +192,8 @@ int main(int argc, char **argv) {
       int clients_connected = 0;
       for (auto i = sockets.begin(); i != sockets.end(); i++) {
         QSocket *q_sock = (QSocket *)(*i);
+        flush_egress(udp_sock, q_sock->conn);
+
         if (quiche_conn_is_closed(q_sock->conn->q_conn)) {
           quiche_stats stats;
           quiche_conn_stats(q_sock->conn->q_conn, &stats);
@@ -242,9 +245,9 @@ int main(int argc, char **argv) {
           throw rdr::SystemException("select", errno);
         }
       }
+      if (!FD_ISSET(udp_sock, &rfds)) continue;
 
       // Recognize or establish quiche connections
-
       static uint8_t buf[0xffff];
       static uint8_t out[MAX_DATAGRAM_SIZE];
       struct conn_io *conn = NULL;

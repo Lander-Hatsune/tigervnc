@@ -1,7 +1,11 @@
 {
-    "files.associations": {
-        "makefile": "makefile",
-        "*.rmd": "markdown",
-        "*.tcc": "cpp"
-    }
+  "files.associations": {
+    "makefile": "makefile",
+    "*.rmd": "markdown",
+    "*.cu": "cpp",
+    "*.tcc": "cpp",
+    "new": "cpp"
+  },
+  "cmake.configureOnOpen": false,
+  "C_Cpp.errorSquiggles": "Enabled"
 }
