@@ -23,7 +23,7 @@ bool validate_token(const uint8_t *token, size_t token_len,
                     struct sockaddr_storage *addr, socklen_t addr_len,
                     uint8_t *odcid, size_t *odcid_len);
 
-conn_io *create_conn_server(uint8_t *odcid, size_t odcid_len, conn_io *conns,
+conn_io *create_conn_server(uint8_t *odcid, size_t odcid_len, conn_io *&conns,
                             quiche_config *config);
 
 }  // namespace quiche

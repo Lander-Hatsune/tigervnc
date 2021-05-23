@@ -12,5 +12,4 @@ Makefile.in
 config.h
 
 build/
-cert.*
 .vscode

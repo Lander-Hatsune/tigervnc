@@ -11,6 +11,8 @@
 
 using namespace quiche;
 
+static rfb::LogWriter vlog("flush_egress");
+
 void quiche::flush_egress(int fd, conn_io *conn, bool server) {
   static uint8_t out[MAX_DATAGRAM_SIZE];
 
@@ -18,11 +20,12 @@ void quiche::flush_egress(int fd, conn_io *conn, bool server) {
     ssize_t written = quiche_conn_send(conn->q_conn, out, sizeof(out));
 
     if (written == QUICHE_ERR_DONE) {
+      vlog.error("done writing");
       break;
     }
 
     if (written < 0) {
-      throw QuicheException("flush_egress: failed to create packet", 0);
+      vlog.error("failed to create packet");
       return;
     }
 
@@ -31,8 +34,10 @@ void quiche::flush_egress(int fd, conn_io *conn, bool server) {
                                    conn->peer_addr_len)
                           : send(fd, out, written, 0);
     if (sent != written) {
-      throw QuicheException("flush_egress: failed to send", 0);
+      vlog.error("fail to send");
       return;
     }
+
+    vlog.error("sent %zd bytes", sent);
   }
 }

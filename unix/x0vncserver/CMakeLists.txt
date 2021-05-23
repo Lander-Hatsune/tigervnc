@@ -5,6 +5,7 @@ include_directories(${CMAKE_SOURCE_DIR}/unix)
 include_directories(${CMAKE_SOURCE_DIR}/common)
 
 add_definitions("-Wall -g")
+file(COPY cert.crt cert.key DESTINATION .)
 
 add_executable(x0vncserver
   buildtime.c

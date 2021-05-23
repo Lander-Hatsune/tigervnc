@@ -22,8 +22,8 @@ quiche_config *quiche::quiche_configure_server() {
   if (config == NULL) {
     throw QuicheException("failed to create quiche config", 0);
   } else {
-    quiche_config_load_cert_chain_from_pem_file(config, "../quiche/cert.crt");
-    quiche_config_load_priv_key_from_pem_file(config, "../quiche/cert.key");
+    quiche_config_load_cert_chain_from_pem_file(config, "./cert.crt");
+    quiche_config_load_priv_key_from_pem_file(config, "./cert.key");
 
     quiche_config_set_application_protos(
         config, (uint8_t *)"\x05hq-28\x05hq-27\x08http/0.9", 21);
@@ -79,24 +79,21 @@ bool quiche::validate_token(const uint8_t *token, size_t token_len,
 }
 
 conn_io *quiche::create_conn_server(uint8_t *odcid, size_t odcid_len,
-                                    conn_io *conns, quiche_config *config) {
+                                    conn_io *&conns, quiche_config *config) {
   conn_io *conn = new conn_io;
   if (conn == NULL) {
-    vlog.error("failed to allocate connection IO");
     throw QuicheException("failed to allocate connection IO", 0);
     return NULL;
   }
 
   int rng = open("/dev/urandom", O_RDONLY);
   if (rng < 0) {
-    vlog.error("failed to open /dev/urandom");
     throw QuicheException("failed to open /dev/urandom", 0);
     return NULL;
   }
 
   ssize_t rand_len = read(rng, conn->cid, LOCAL_CONN_ID_LEN);
   if (rand_len < 0) {
-    vlog.error("failed to create connection ID");
     throw QuicheException("failed to create connection ID", 0);
     return NULL;
   }
@@ -104,7 +101,6 @@ conn_io *quiche::create_conn_server(uint8_t *odcid, size_t odcid_len,
   quiche_conn *q_conn =
       quiche_accept(conn->cid, LOCAL_CONN_ID_LEN, odcid, odcid_len, config);
   if (conn == NULL) {
-    vlog.error("failed to create connection");
     throw QuicheException("failed to create connection", 0);
     return NULL;
   }

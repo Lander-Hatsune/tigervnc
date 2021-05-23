@@ -1,7 +1,7 @@
 include_directories(${FLTK_INCLUDE_DIR})
 include_directories(${GETTEXT_INCLUDE_DIR})
-
 include_directories(${CMAKE_SOURCE_DIR}/common)
+
 set(VNCVIEWER_SOURCES
   menukey.cxx
   BaseTouchHandler.cxx

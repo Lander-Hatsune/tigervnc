@@ -81,6 +81,7 @@ static void CleanupSignalHandler(int sig) { caughtSignal = true; }
 
 static quiche_config *config = NULL;
 static conn_io *conns = NULL;
+static int udp_sock = -1;
 
 char *programName;
 
@@ -103,6 +104,166 @@ static void usage() {
           "Parameter names are case-insensitive.  The parameters are:\n\n");
   Configuration::listParams(79, 14);
   exit(1);
+}
+
+static void main_loop(VNCServerST *server) {
+  struct conn_io *conn = NULL;
+  static uint8_t buf[65535];
+  static uint8_t out[MAX_DATAGRAM_SIZE];
+  static std::list<Socket *> sockets;
+
+  while (1) {
+    struct sockaddr_storage peer_addr;
+    socklen_t peer_addr_len = sizeof(peer_addr);
+    memset(&peer_addr, 0, peer_addr_len);
+
+    ssize_t read = recvfrom(udp_sock, buf, sizeof(buf), 0,
+                            (struct sockaddr *)&peer_addr, &peer_addr_len);
+
+    if (read < 0) {
+      if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
+        vlog.error("read would block");
+        break;
+      }
+
+      vlog.error("fail to read");
+      return;
+    }
+
+    uint8_t type;
+    uint32_t version;
+
+    uint8_t scid[QUICHE_MAX_CONN_ID_LEN];
+    size_t scid_len = sizeof(scid);
+
+    uint8_t dcid[QUICHE_MAX_CONN_ID_LEN];
+    size_t dcid_len = sizeof(dcid);
+
+    uint8_t odcid[QUICHE_MAX_CONN_ID_LEN];
+    size_t odcid_len = sizeof(odcid);
+
+    uint8_t token[MAX_TOKEN_LEN];
+    size_t token_len = sizeof(token);
+
+    int rc = quiche_header_info((uint8_t *)buf, read, LOCAL_CONN_ID_LEN,
+                                &version, &type, scid, &scid_len, dcid,
+                                &dcid_len, token, &token_len);
+    if (rc < 0) {
+      vlog.error("failed to parse header: %d", rc);
+      continue;
+    }
+
+    HASH_FIND(hh, conns, dcid, dcid_len, conn);
+
+    if (conn == NULL) {
+      if (!quiche_version_is_supported(version)) {
+        vlog.error("version negotiation");
+
+        ssize_t written = quiche_negotiate_version(scid, scid_len, dcid,
+                                                   dcid_len, out, sizeof(out));
+
+        if (written < 0) {
+          vlog.error("failed to create vneg packet: %zd", written);
+          continue;
+        }
+
+        ssize_t sent = sendto(udp_sock, out, written, 0,
+                              (struct sockaddr *)&peer_addr, peer_addr_len);
+        if (sent != written) {
+          vlog.error("failed to send");
+          continue;
+        }
+
+        vlog.info("sent %zd bytes", sent);
+        continue;
+      }
+
+      if (token_len == 0) {
+        vlog.error("stateless retry");
+
+        mint_token(dcid, dcid_len, &peer_addr, peer_addr_len, token,
+                   &token_len);
+
+        ssize_t written =
+            quiche_retry(scid, scid_len, dcid, dcid_len, dcid, dcid_len, token,
+                         token_len, out, sizeof(out));
+
+        if (written < 0) {
+          vlog.error("failed to create retry packet: %zd", written);
+          continue;
+        }
+
+        ssize_t sent = sendto(udp_sock, out, written, 0,
+                              (struct sockaddr *)&peer_addr, peer_addr_len);
+        if (sent != written) {
+          vlog.error("failed to send");
+          continue;
+        }
+
+        vlog.info("sent %zd bytes", sent);
+        continue;
+      }
+
+      if (!validate_token(token, token_len, &peer_addr, peer_addr_len, odcid,
+                          &odcid_len)) {
+        vlog.error("invalid address validation token");
+        continue;
+      }
+
+      if (!(conn = create_conn_server(odcid, odcid_len, conns, config))) {
+        continue;
+      }
+
+      memcpy(&conn->peer_addr, &peer_addr, peer_addr_len);
+      conn->peer_addr_len = peer_addr_len;
+
+      // Add new VNC connections
+      server->addSocket(new QSocket(udp_sock, conn));
+    }
+
+    ssize_t done = quiche_conn_recv(conn->q_conn, buf, read);
+
+    if (done < 0) {
+      vlog.error("failed to process packet: %zd", done);
+      continue;
+    }
+
+    vlog.info("recv %zd bytes", done);
+
+    // server->getSockets(&sockets);
+    // for (auto i = sockets.begin(); i != sockets.end(); i++) {
+    //   QSocket *q_sock = (QSocket *)(*i);
+    //   if (q_sock->conn->cid == conn->cid &&
+    //       quiche_conn_is_established(conn->q_conn)) {
+    //     server->processSocketReadEvent(*i);
+    //     server->processSocketWriteEvent(*i);
+    //     break;
+    //   }
+    // }
+  }
+
+  server->getSockets(&sockets);
+  for (auto i = sockets.begin(); i != sockets.end(); i++) {
+    QSocket *q_sock = (QSocket *)(*i);
+    flush_egress(udp_sock, q_sock->conn);
+
+    if (quiche_conn_is_closed(q_sock->conn->q_conn)) {
+      quiche_stats stats;
+      quiche_conn_stats(q_sock->conn->q_conn, &stats);
+      vlog.error(
+          "connection[id:%s] closed, recv=%zu sent=%zu lost=%zu "
+          "rtt=%" PRIu64 "ns cwnd=%zu",
+          (char *)q_sock->conn->cid, stats.recv, stats.sent, stats.lost,
+          stats.rtt, stats.cwnd);
+
+      HASH_DELETE(hh, conns, q_sock->conn);
+      quiche_conn_free(q_sock->conn->q_conn);
+      delete q_sock->conn;
+
+      server->removeSocket(*i);
+      delete (*i);
+    }
+  }
 }
 
 int main(int argc, char **argv) {
@@ -160,7 +321,7 @@ int main(int argc, char **argv) {
 
     // - Create UDP socket
     char *addr = server_address.getData();
-    int udp_sock = createUDPSocket(addr, (int)rfbport, BIND);
+    udp_sock = createUDPSocket(addr, (int)rfbport, BIND);
     delete[] addr;
 
     // - Configure quiche
@@ -171,64 +332,28 @@ int main(int argc, char **argv) {
 
     // - Main loop
     while (!caughtSignal) {
-      int wait_ms;
-      struct timeval tv;
       fd_set rfds, wfds;
-      std::list<Socket *> sockets;
-
-      // Process any incoming X events
-      TXWindow::handleXEvents(dpy);
-
       FD_ZERO(&rfds);
       FD_ZERO(&wfds);
+      // Process any incoming X events
+      TXWindow::handleXEvents(dpy);
 
       FD_SET(ConnectionNumber(dpy), &rfds);
       FD_SET(udp_sock, &rfds);
       FD_SET(udp_sock, &wfds);
 
-      // Check client status
-
+      std::list<Socket *> sockets;
       server.getSockets(&sockets);
-      int clients_connected = 0;
-      for (auto i = sockets.begin(); i != sockets.end(); i++) {
-        QSocket *q_sock = (QSocket *)(*i);
-        flush_egress(udp_sock, q_sock->conn);
-
-        if (quiche_conn_is_closed(q_sock->conn->q_conn)) {
-          quiche_stats stats;
-          quiche_conn_stats(q_sock->conn->q_conn, &stats);
-          vlog.error(
-              "connection[id:%s] closed, recv=%zu sent=%zu lost=%zu "
-              "rtt=%" PRIu64 "ns cwnd=%zu",
-              (char *)q_sock->conn->cid, stats.recv, stats.sent, stats.lost,
-              stats.rtt, stats.cwnd);
-
-          HASH_DELETE(hh, conns, q_sock->conn);
-          quiche_conn_free(q_sock->conn->q_conn);
-          delete q_sock->conn;
-
-          server.removeSocket(*i);
-          delete (*i);
-        } else {
-          FD_SET((*i)->getFd(), &rfds);
-          if ((*i)->outStream().hasBufferedData()) FD_SET((*i)->getFd(), &wfds);
-          clients_connected++;
-        }
-      }
-
-      if (!clients_connected) sched.reset();
-
-      wait_ms = 0;
-
+      if (sockets.empty()) sched.reset();
+      int wait_ms = 0;
       if (sched.isRunning()) {
         wait_ms = sched.millisRemaining();
         if (wait_ms > 500) {
           wait_ms = 500;
         }
       }
-
       soonestTimeout(&wait_ms, Timer::checkTimeouts());
-
+      struct timeval tv;
       tv.tv_sec = wait_ms / 1000;
       tv.tv_usec = (wait_ms % 1000) * 1000;
 
@@ -245,148 +370,12 @@ int main(int argc, char **argv) {
           throw rdr::SystemException("select", errno);
         }
       }
-      if (!FD_ISSET(udp_sock, &rfds)) continue;
+      bool read_ev = FD_ISSET(udp_sock, &rfds);
+      if (!read_ev) continue;
 
-      // Recognize or establish quiche connections
-      static uint8_t buf[0xffff];
-      static uint8_t out[MAX_DATAGRAM_SIZE];
-      struct conn_io *conn = NULL;
-
-      size_t read;
-      struct sockaddr_storage peer_addr;
-      socklen_t peer_addr_len = sizeof(peer_addr);
-      memset(&peer_addr, 0, peer_addr_len);
-
-      read = recvfrom(udp_sock, buf, sizeof(buf), 0,
-                      (struct sockaddr *)&peer_addr, &peer_addr_len);
-
-      if (read < 0) {
-        if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
-          vlog.error("read would block");
-          continue;
-        }
-
-        vlog.error("fail to read");
-        continue;
-      }
-
-      uint8_t type;
-      uint32_t version;
-
-      uint8_t scid[QUICHE_MAX_CONN_ID_LEN];
-      size_t scid_len = sizeof(scid);
-
-      uint8_t dcid[QUICHE_MAX_CONN_ID_LEN];
-      size_t dcid_len = sizeof(dcid);
-
-      uint8_t odcid[QUICHE_MAX_CONN_ID_LEN];
-      size_t odcid_len = sizeof(odcid);
-
-      uint8_t token[MAX_TOKEN_LEN];
-      size_t token_len = sizeof(token);
-
-      int rc = quiche_header_info((uint8_t *)buf, read, LOCAL_CONN_ID_LEN,
-                                  &version, &type, scid, &scid_len, dcid,
-                                  &dcid_len, token, &token_len);
-      if (rc < 0) {
-        vlog.error("failed to parse header: %d", rc);
-        continue;
-      }
-
-      HASH_FIND(hh, conns, dcid, dcid_len, conn);
-
-      if (conn == NULL) {
-        if (!quiche_version_is_supported(version)) {
-          vlog.error("version negotiation");
-
-          ssize_t written = quiche_negotiate_version(
-              scid, scid_len, dcid, dcid_len, out, sizeof(out));
-
-          if (written < 0) {
-            vlog.error("failed to create vneg packet: %zd", written);
-            continue;
-          }
-
-          ssize_t sent = sendto(udp_sock, out, written, 0,
-                                (struct sockaddr *)&peer_addr, peer_addr_len);
-          if (sent != written) {
-            vlog.error("failed to send");
-            continue;
-          }
-
-          vlog.info("sent %zd bytes", sent);
-          continue;
-        }
-
-        if (token_len == 0) {
-          vlog.error("stateless retry");
-
-          mint_token(dcid, dcid_len, &peer_addr, peer_addr_len, token,
-                     &token_len);
-
-          ssize_t written =
-              quiche_retry(scid, scid_len, dcid, dcid_len, dcid, dcid_len,
-                           token, token_len, out, sizeof(out));
-
-          if (written < 0) {
-            vlog.error("failed to create retry packet: %zd", written);
-            continue;
-          }
-
-          ssize_t sent = sendto(udp_sock, out, written, 0,
-                                (struct sockaddr *)&peer_addr, peer_addr_len);
-          if (sent != written) {
-            vlog.error("failed to send");
-            continue;
-          }
-
-          vlog.info("sent %zd bytes", sent);
-          continue;
-        }
-
-        if (!validate_token(token, token_len, &peer_addr, peer_addr_len, odcid,
-                            &odcid_len)) {
-          vlog.error("invalid address validation token");
-          continue;
-        }
-
-        if (!(conn = create_conn_server(odcid, odcid_len, conns, config))) {
-          continue;
-        }
-
-        memcpy(&conn->peer_addr, &peer_addr, peer_addr_len);
-        conn->peer_addr_len = peer_addr_len;
-
-        // Add new VNC connections
-
-        QSocket *q_sock = new QSocket(udp_sock, conn);
-        server.addSocket(q_sock);
-      }
-
-      ssize_t done = quiche_conn_recv(conn->q_conn, (uint8_t *)buf, read);
-
-      if (done < 0) {
-        vlog.error("failed to process packet: %zd", done);
-        continue;
-      }
-
-      vlog.info("recv %zd bytes", done);
+      main_loop(&server);
 
       Timer::checkTimeouts();
-
-      // Client list could have been changed.
-      server.getSockets(&sockets);
-
-      // Nothing more to do if there are no client connections.
-      if (sockets.empty()) continue;
-
-      // Process events on existing VNC connections
-
-      for (auto i = sockets.begin(); i != sockets.end(); i++) {
-        if (FD_ISSET((*i)->getFd(), &rfds)) server.processSocketReadEvent(*i);
-        if (FD_ISSET((*i)->getFd(), &wfds)) server.processSocketWriteEvent(*i);
-      }
-
       if (desktop.isRunning() && sched.goodTimeToPoll()) {
         sched.newPass();
         desktop.poll();

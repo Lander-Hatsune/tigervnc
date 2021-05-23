@@ -99,6 +99,8 @@ static const char *exitError = NULL;
 
 static quiche_config *config = NULL;
 static conn_io *conns = NULL;
+static int udp_sock = -1;
+static QSocket *q_sock = NULL;
 
 static const char *about_text() {
   static char buffer[1024];
@@ -494,6 +496,82 @@ static int mktunnel() {
 }
 #endif /* !WIN32 */
 
+static bool establish_conn_client() {
+  static uint8_t buf[65535];
+
+  // check if there's a read event
+  fd_set rfds;
+  FD_ZERO(&rfds);
+  FD_SET(udp_sock, &rfds);
+
+  // Do the wait...
+  int wait_ms = 100;
+  struct timeval tv;
+  tv.tv_sec = wait_ms / 1000;
+  tv.tv_usec = (wait_ms % 1000) * 1000;
+
+  int n = select(FD_SETSIZE, &rfds, 0, 0, wait_ms ? &tv : NULL);
+
+  if (n < 0) {
+    if (errno == EINTR) {
+      vlog.debug("Interrupted select() system call");
+      return false;
+    } else {
+      throw rdr::SystemException("select", errno);
+    }
+  }
+  if (!FD_ISSET(udp_sock, &rfds)) return false;
+
+  // receive until buffer is full
+  while (1) {
+    ssize_t read = recv(udp_sock, buf, sizeof(buf), 0);
+
+    if (read < 0) {
+      if (errno == EWOULDBLOCK || errno == EAGAIN) {
+        vlog.error("recv would block");
+        break;
+      } else {
+        vlog.error("fail to read");
+        return false;
+      }
+    }
+
+    ssize_t done = quiche_conn_recv(conns->q_conn, buf, read);
+
+    if (done < 0) {
+      vlog.error("fail to process packet");
+      continue;
+    }
+
+    vlog.error("receive %zd bytes", done);
+  }
+
+  vlog.error("done reading");
+
+  if (quiche_conn_is_established(conns->q_conn)) {
+    const uint8_t *app_proto;
+    size_t app_proto_len;
+
+    quiche_conn_application_proto(conns->q_conn, &app_proto, &app_proto_len);
+
+    vlog.error("connection established: %.*s", (int)app_proto_len, app_proto);
+
+    const static uint8_t r[] = "hello\r\n";
+    if (quiche_conn_stream_send(conns->q_conn, 4, r, sizeof(r), true) < 0) {
+      vlog.error("failed to send hello, retrying...");
+      return false;
+    }
+
+    vlog.error("successfully send %s and create Qsocket", r);
+    q_sock = new QSocket(udp_sock, conns);
+    flush_egress(udp_sock, conns, false);
+    return true;
+  } else {
+    flush_egress(udp_sock, conns, false);
+    return false;
+  }
+}
+
 int main(int argc, char **argv) {
   UserDialog dlg;
 
@@ -595,7 +673,7 @@ int main(int argc, char **argv) {
 #endif
 
   init_fltk();
-  // enable_touch();
+  enable_touch();
 
   // Check if the server name in reality is a configuration file
   // potentiallyLoadConfigurationFile(vncServerName);
@@ -679,12 +757,10 @@ int main(int argc, char **argv) {
   //   }
 
   // TODO: Currently UI input is disabled
-  // ServerDialog::run(defaultServerName, vncServerName);
-  // if (vncServerName[0] == '\0') return 1;
+  ServerDialog::run(defaultServerName, vncServerName);
+  if (vncServerName[0] == '\0') return 1;
   strncpy(vncServerName, default_server_address.getData(), VNCSERVERNAMELEN);
 
-  int udp_sock;
-  QSocket *q_sock;
   try {
     // - Create UDP socket(use default configuration instead of UI input)
     udp_sock = createUDPSocket(vncServerName, (int)rfbport, CONNECT);
@@ -693,76 +769,11 @@ int main(int argc, char **argv) {
     config = quiche_configure_client();
 
     conns = create_conn_client(vncServerName, config);
-    q_sock = new QSocket(udp_sock, conns);
-
-    bool req_sent = false;
-    uint8_t buf[65535];
-    flush_egress(udp_sock, conns, false);
-
     vlog.error("establishing connection...");
-    while (!req_sent) {
-      fd_set rfds;
-      FD_ZERO(&rfds);
-      FD_SET(udp_sock, &rfds);
 
-      // Do the wait...
-      int wait_ms = 100;
-      struct timeval tv;
-      tv.tv_sec = wait_ms / 1000;
-      tv.tv_usec = (wait_ms % 1000) * 1000;
-
-      int n = select(FD_SETSIZE, &rfds, 0, 0, wait_ms ? &tv : NULL);
-
-      if (n < 0) {
-        if (errno == EINTR) {
-          vlog.debug("Interrupted select() system call");
-          continue;
-        } else {
-          throw rdr::SystemException("select", errno);
-        }
-      }
-      if (!FD_ISSET(udp_sock, &rfds)) continue;
-      
-      // receive until buffer is full
-      while (1) {
-        ssize_t read = recv(udp_sock, buf, sizeof(buf), 0);
-
-        if (read < 0) {
-          if (errno == EWOULDBLOCK || errno == EAGAIN) {
-            break;
-          } else
-            continue;
-        }
-
-        vlog.error("receive %zd bytes", read);
-
-        ssize_t done = quiche_conn_recv(conns->q_conn, buf, read);
-        if (done < 0) {
-          vlog.error("fail to process packet");
-          continue;
-        }
-      }
-
-      if (quiche_conn_is_established(conns->q_conn)) {
-        const uint8_t *app_proto;
-        size_t app_proto_len;
-
-        quiche_conn_application_proto(conns->q_conn, &app_proto,
-                                      &app_proto_len);
-
-        vlog.error("connection established: %.*s", (int)app_proto_len,
-                   app_proto);
-
-        const static uint8_t r[] = "hello\r\n";
-        if (quiche_conn_stream_send(conns->q_conn, 4, r, sizeof(r), true) < 0) {
-          vlog.error("failed to send hello, retrying...");
-          continue;
-        }
-
-        req_sent = true;
-      }
-      flush_egress(udp_sock, conns, false);
-    }
+    flush_egress(udp_sock, conns, false);
+    while (!establish_conn_client())
+      ;
     vlog.error("enjoy");
   } catch (rdr::Exception &e) {
     vlog.error("%s", e.str());
