@@ -230,38 +230,39 @@ static void main_loop(VNCServerST *server) {
 
     vlog.info("recv %zd bytes", done);
 
-    // server->getSockets(&sockets);
-    // for (auto i = sockets.begin(); i != sockets.end(); i++) {
-    //   QSocket *q_sock = (QSocket *)(*i);
-    //   if (q_sock->conn->cid == conn->cid &&
-    //       quiche_conn_is_established(conn->q_conn)) {
-    //     server->processSocketReadEvent(*i);
-    //     server->processSocketWriteEvent(*i);
-    //     break;
-    //   }
-    // }
-  }
+    server->getSockets(&sockets);
+    for (auto i = sockets.begin(); i != sockets.end(); i++) {
+      QSocket *q_sock = (QSocket *)(*i);
+      flush_egress(udp_sock, q_sock->conn);
 
-  server->getSockets(&sockets);
-  for (auto i = sockets.begin(); i != sockets.end(); i++) {
-    QSocket *q_sock = (QSocket *)(*i);
-    flush_egress(udp_sock, q_sock->conn);
+      if (quiche_conn_is_closed(q_sock->conn->q_conn)) {
+        quiche_stats stats;
+        quiche_conn_stats(q_sock->conn->q_conn, &stats);
+        vlog.error(
+                   "connection[id:%s] closed, recv=%zu sent=%zu lost=%zu "
+                   "rtt=%" PRIu64 "ns cwnd=%zu",
+                   (char *)q_sock->conn->cid, stats.recv, stats.sent, stats.lost,
+                   stats.rtt, stats.cwnd);
 
-    if (quiche_conn_is_closed(q_sock->conn->q_conn)) {
-      quiche_stats stats;
-      quiche_conn_stats(q_sock->conn->q_conn, &stats);
-      vlog.error(
-          "connection[id:%s] closed, recv=%zu sent=%zu lost=%zu "
-          "rtt=%" PRIu64 "ns cwnd=%zu",
-          (char *)q_sock->conn->cid, stats.recv, stats.sent, stats.lost,
-          stats.rtt, stats.cwnd);
+        HASH_DELETE(hh, conns, q_sock->conn);
+        quiche_conn_free(q_sock->conn->q_conn);
+        delete q_sock->conn;
 
-      HASH_DELETE(hh, conns, q_sock->conn);
-      quiche_conn_free(q_sock->conn->q_conn);
-      delete q_sock->conn;
+        server->removeSocket(*i);
+        delete (*i);
+      }
+    }
 
-      server->removeSocket(*i);
-      delete (*i);
+    server->getSockets(&sockets);
+    for (auto i = sockets.begin(); i != sockets.end(); i++) {
+      QSocket *q_sock = (QSocket *)(*i);
+      // flush_egress(udp_sock, q_sock->conn);
+      if (q_sock->conn->cid == conn->cid &&
+          quiche_conn_is_established(conn->q_conn)) {
+        server->processSocketReadEvent(*i);
+        server->processSocketWriteEvent(*i);
+        break;
+      }
     }
   }
 }

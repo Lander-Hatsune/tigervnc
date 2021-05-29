@@ -94,7 +94,7 @@ CConn::CConn(const char* vncServerName, network::Socket* socket=NULL)
   if (!noJpeg)
     setQualityLevel(::qualityLevel);
 
-  if(sock == NULL) {
+  if(sock == NULL) {// false (sock is q_sock)
     try {
 #ifndef WIN32
       if (strchr(vncServerName, '/') != NULL) {
@@ -121,6 +121,8 @@ CConn::CConn(const char* vncServerName, network::Socket* socket=NULL)
 
   setServerName(serverHost);
   setStreams(&sock->inStream(), &sock->outStream());
+
+  vlog.error("streams set");
 
   initialiseProtocol();
 
